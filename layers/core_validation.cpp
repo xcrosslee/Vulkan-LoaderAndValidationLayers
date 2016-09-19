@@ -3732,19 +3732,12 @@ void SetLayout(const layer_data *dev_data, GLOBAL_CB_NODE *pCB, VkImageView imag
 // Return true if validation error occurs and callback returns true (to skip upcoming API call down the chain)
 static bool validateIdleDescriptorSet(const layer_data *my_data, VkDescriptorSet set, std::string func_str) {
     bool skip_call = false;
-    auto set_node = my_data->setMap.find(set);
-    if (set_node == my_data->setMap.end()) {
-        skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT,
-                             (uint64_t)(set), __LINE__, DRAWSTATE_DOUBLE_DESTROY, "DS",
-                             "Cannot call %s() on descriptor set 0x%" PRIxLEAST64 " that has not been allocated.", func_str.c_str(),
-                             (uint64_t)(set));
-    } else {
-        if (set_node->second->in_use.load()) {
-            skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                 VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT, (uint64_t)(set), __LINE__, DRAWSTATE_OBJECT_INUSE,
-                                 "DS", "Cannot call %s() on descriptor set 0x%" PRIxLEAST64 " that is in use by a command buffer.",
-                                 func_str.c_str(), (uint64_t)(set));
-        }
+    auto set_node = getSetNode(my_data, set);
+    if (set_node && set_node->in_use.load()) {
+        skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                             VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT, (uint64_t)(set), __LINE__, DRAWSTATE_OBJECT_INUSE,
+                             "DS", "Cannot call %s() on descriptor set 0x%" PRIxLEAST64 " that is in use by a command buffer.",
+                             func_str.c_str(), (uint64_t)(set));
     }
     return skip_call;
 }
@@ -5472,16 +5465,10 @@ VKAPI_ATTR VkResult VKAPI_CALL GetQueryPoolResults(VkDevice device, VkQueryPool 
 static bool validateIdleBuffer(const layer_data *my_data, VkBuffer buffer) {
     bool skip_call = false;
     auto buffer_node = getBufferNode(my_data, buffer);
-    if (!buffer_node) {
+    if (buffer_node && buffer_node->in_use.load()) {
         skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
-                             (uint64_t)(buffer), __LINE__, DRAWSTATE_DOUBLE_DESTROY, "DS",
-                             "Cannot free buffer 0x%" PRIxLEAST64 " that has not been allocated.", (uint64_t)(buffer));
-    } else {
-        if (buffer_node->in_use.load()) {
-            skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
-                                 (uint64_t)(buffer), __LINE__, DRAWSTATE_OBJECT_INUSE, "DS",
-                                 "Cannot free buffer 0x%" PRIxLEAST64 " that is in use by a command buffer.", (uint64_t)(buffer));
-        }
+                             (uint64_t)(buffer), __LINE__, DRAWSTATE_OBJECT_INUSE, "DS",
+                             "Cannot free buffer 0x%" PRIxLEAST64 " that is in use by a command buffer.", (uint64_t)(buffer));
     }
     return skip_call;
 }

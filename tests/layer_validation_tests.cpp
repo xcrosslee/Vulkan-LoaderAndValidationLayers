@@ -3504,6 +3504,20 @@ TEST_F(VkLayerTest, BindMemoryToDestroyedObject) {
 
 #if DRAW_STATE_TESTS
 
+TEST_F(VkLayerTest, DestroyNullImage) {
+    ASSERT_NO_FATAL_FAILURE(InitState());
+    m_errorMonitor->ExpectSuccess();
+    vkDestroyImage(m_device->device(), VK_NULL_HANDLE, nullptr);
+    m_errorMonitor->VerifyNotFound();
+}
+
+TEST_F(VkLayerTest, DestroyNullBuffer) {
+    ASSERT_NO_FATAL_FAILURE(InitState());
+    m_errorMonitor->ExpectSuccess();
+    vkDestroyBuffer(m_device->device(), VK_NULL_HANDLE, nullptr);
+    m_errorMonitor->VerifyNotFound();
+}
+
 TEST_F(VkLayerTest, ImageSampleCounts) {
 
     TEST_DESCRIPTION("Use bad sample counts in image transfer calls to trigger "

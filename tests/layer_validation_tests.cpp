@@ -13396,6 +13396,7 @@ TEST_F(VkLayerTest, InUseDestroyedSignaled) {
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
     const char *submit_with_deleted_event_message = "Cannot submit cmd buffer using deleted event 0x";
+    const char *submit_with_deleted_event_message2 = " that is invalid because bound event ";
     const char *cannot_delete_event_message = "Cannot delete event 0x";
     const char *cannot_delete_semaphore_message = "Cannot delete semaphore 0x";
     const char *cannot_destroy_fence_message = "Fence 0x";
@@ -13416,9 +13417,11 @@ TEST_F(VkLayerTest, InUseDestroyedSignaled) {
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &m_commandBuffer->handle();
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, submit_with_deleted_event_message);
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, submit_with_deleted_event_message2);
     vkQueueSubmit(m_device->m_queue, 1, &submit_info, VK_NULL_HANDLE);
     m_errorMonitor->VerifyFound();
 
+    vkQueueWaitIdle(m_device->m_queue);
     m_errorMonitor->SetDesiredFailureMsg(0, "");
     vkResetCommandBuffer(m_commandBuffer->handle(), 0);
 
@@ -14238,6 +14241,7 @@ TEST_F(VkLayerTest, FramebufferIncompatible) {
     vkCmdExecuteCommands(m_commandBuffer->GetBufferHandle(), 1, &sec_cb);
     m_errorMonitor->VerifyFound();
     // Cleanup
+    vkQueueWaitIdle(m_device->m_queue);
     vkDestroyImageView(m_device->device(), view, NULL);
     vkDestroyRenderPass(m_device->device(), rp, NULL);
     vkDestroyFramebuffer(m_device->device(), fb, NULL);

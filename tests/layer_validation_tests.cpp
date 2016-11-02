@@ -1486,7 +1486,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // following declaration (which is temporarily being moved below):
     //    VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    VkSwapchainCreateInfoKHR swapchain_create_info = {};
+    VkSwapchainCreateInfoKHR swapchain_create_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     uint32_t swapchain_image_count = 0;
     //    VkImage swapchain_images[1] = {VK_NULL_HANDLE};
     uint32_t image_index = 0;
@@ -1500,7 +1500,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // enabling that extension:
 
     // Create a surface:
-    VkAndroidSurfaceCreateInfoKHR android_create_info = {};
+    VkAndroidSurfaceCreateInfoKHR android_create_info = {VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "extension was not enabled for this");
     err = vkCreateAndroidSurfaceKHR(instance(), &android_create_info, NULL, &surface);
     pass = (err != VK_SUCCESS);
@@ -1513,7 +1513,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // that extension:
 
     // Create a surface:
-    VkMirSurfaceCreateInfoKHR mir_create_info = {};
+    VkMirSurfaceCreateInfoKHR mir_create_info = {VK_STRUCTURE_TYPE_MIR_SURFACE_CREATE_INFO_KHR};
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "extension was not enabled for this");
     err = vkCreateMirSurfaceKHR(instance(), &mir_create_info, NULL, &surface);
     pass = (err != VK_SUCCESS);
@@ -1532,7 +1532,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // enabling that extension:
 
     // Create a surface:
-    VkWaylandSurfaceCreateInfoKHR wayland_create_info = {};
+    VkWaylandSurfaceCreateInfoKHR wayland_create_info = {VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR};
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "extension was not enabled for this");
     err = vkCreateWaylandSurfaceKHR(instance(), &wayland_create_info, NULL, &surface);
     pass = (err != VK_SUCCESS);
@@ -1555,7 +1555,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // enabling that extension:
 
     // Create a surface:
-    VkWin32SurfaceCreateInfoKHR win32_create_info = {};
+    VkWin32SurfaceCreateInfoKHR win32_create_info = {VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "extension was not enabled for this");
     err = vkCreateWin32SurfaceKHR(instance(), &win32_create_info, NULL, &surface);
     pass = (err != VK_SUCCESS);
@@ -1578,7 +1578,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // that extension:
 
     // Create a surface:
-    VkXcbSurfaceCreateInfoKHR xcb_create_info = {};
+    VkXcbSurfaceCreateInfoKHR xcb_create_info = {VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "extension was not enabled for this");
     err = vkCreateXcbSurfaceKHR(instance(), &xcb_create_info, NULL, &surface);
     pass = (err != VK_SUCCESS);
@@ -1600,7 +1600,7 @@ TEST_F(VkLayerTest, EnableWsiBeforeUse) {
     // that extension:
 
     // Create a surface:
-    VkXlibSurfaceCreateInfoKHR xlib_create_info = {};
+    VkXlibSurfaceCreateInfoKHR xlib_create_info = {VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR};
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "extension was not enabled for this");
     err = vkCreateXlibSurfaceKHR(instance(), &xlib_create_info, NULL, &surface);
     pass = (err != VK_SUCCESS);

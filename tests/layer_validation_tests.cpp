@@ -1905,7 +1905,7 @@ TEST_F(VkLayerTest, InvalidUsageBits) {
     dsvci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     dsvci.image = image.handle();
     dsvci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    dsvci.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+    dsvci.format = VK_FORMAT_D24_UNORM_S8_UINT;
     dsvci.subresourceRange.layerCount = 1;
     dsvci.subresourceRange.baseMipLevel = 0;
     dsvci.subresourceRange.levelCount = 1;

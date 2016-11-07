@@ -23,6 +23,38 @@
 # Author: Gwan-gyeong Mun <kk.moon@samsung.com>
 # Author: Mark Lobodzinski <mark@lunarg.com>
 
+# WHAT GOES ON IN vk-genrate.py:
+#
+# This script implements two subcommands:
+#   - dispatch-table-ops -- generate dispatch table header files
+#   - win-def-file       -- generate windows def files
+#
+# dispatch-table-ops subcommand:
+#
+# Args: (display_server, subcommand, path_to_build_dir, table_type)
+#   - display_server -- Win32, Android, Xcb, Xlib, Wayland, Mir or AllPlatforms.
+#         AllPlatforms includes ALL entrypoints regardless of platform.
+#   - subcommand -- must be 'dispatch-table-ops' for this subcommand
+#   - path_to_build_dir -- must be a complete or relative path to the location of the
+#         generated helper script, vulkan_api.py
+#   - table_type -- not used for this subcommand, ignored
+#
+# win-def-file subcommand:
+#
+# Args: (display_server, subcommand, path_to_build_dir, outfile, table_type)
+#   - display_server -- Win32, Android, Xcb, Xlib, Wayland, Mir or AllPlatforms.
+#         AllPlatforms includes ALL entrypoints regardless of platform.
+#   - subcommand -- must be 'win-def-files' for this subcommand
+#   - path_to_build_dir -- must be a complete or relative path to the location of the
+#         generated helper script, vulkan_api.py
+#   - outfile -- name prepended to generated dispatch table header file
+#   - table_type -- 'all', 'icd', 'layer', 'layer_multi'
+#         all -- generates def file containing all entrypoints
+#         icd -- generate def file for LunarG ICD (deprecated)
+#         layer -- generate def file containing entrypoints for a validation layer
+#         layer_multi -- deprecated
+#
+
 import sys
 
 def generate_get_proc_addr_check(name):

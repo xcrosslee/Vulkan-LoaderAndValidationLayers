@@ -123,6 +123,127 @@ static PFN_vkGetDeviceProcAddr g_gdpa = NULL;
         }                                                                      \
     }
 
+#if 1 // Brainpain
+#include "inttypes.h"
+struct AllocTrack {
+    bool active;
+    void *actual_start_addr;
+    void *aligned_start_addr;
+    size_t request_size_bytes;
+    size_t padded_size_bytes;
+    VkSystemAllocationScope scope;
+    uint64_t user_data;
+};
+
+#define ALLOC_TRACK_SIZE 2048
+static struct AllocTrack g_alloc_track_array[ALLOC_TRACK_SIZE];
+
+void *CubeAllocFunc(void *pUserData, size_t size, size_t alignment,
+                    VkSystemAllocationScope allocationScope) {
+    struct AllocTrack *cur_track = NULL;
+    for (uint32_t iii = 0; iii < ALLOC_TRACK_SIZE; iii++) {
+        if (!g_alloc_track_array[iii].active) {
+            cur_track = &g_alloc_track_array[iii];
+            break;
+        }
+    }
+    if (cur_track == NULL) {
+        return NULL;
+    }
+    cur_track->request_size_bytes = size;
+    cur_track->padded_size_bytes = size + (alignment - 1);
+    cur_track->aligned_start_addr = NULL;
+    cur_track->actual_start_addr = malloc(cur_track->padded_size_bytes);
+    if (cur_track->actual_start_addr != NULL) {
+        uint64_t addr = (uint64_t)cur_track->actual_start_addr;
+        addr += (alignment - 1);
+        addr &= ~(alignment - 1);
+        cur_track->aligned_start_addr = (void*)addr;
+        cur_track->scope = allocationScope;
+        cur_track->user_data = (uint64_t)pUserData;
+        cur_track->active = 1;
+    }
+    return cur_track->aligned_start_addr;
+}
+
+void CubeFreeFunc(void *pUserData, void *pMemory) {
+    struct AllocTrack *cur_track = NULL;
+    for (uint32_t iii = 0; iii < ALLOC_TRACK_SIZE; iii++) {
+        if (g_alloc_track_array[iii].active &&
+            g_alloc_track_array[iii].aligned_start_addr == pMemory) {
+            cur_track = &g_alloc_track_array[iii];
+            break;
+        }
+    }
+    if (cur_track != NULL) {
+        free(cur_track->actual_start_addr);
+        cur_track->active = false;
+    }
+}
+
+void *CubeReallocFunc(void *pUserData, void *pOriginal, size_t size,
+                      size_t alignment,
+                      VkSystemAllocationScope allocationScope) {
+    struct AllocTrack *cur_track = NULL;
+    if (pOriginal != NULL) {
+        for (uint32_t iii = 0; iii < ALLOC_TRACK_SIZE; iii++) {
+            if (g_alloc_track_array[iii].active &&
+                g_alloc_track_array[iii].aligned_start_addr == pOriginal) {
+                cur_track = &g_alloc_track_array[iii];
+                break;
+            }
+        }
+        assert(cur_track != NULL);
+    } else {
+        return CubeAllocFunc(pUserData, size, alignment, allocationScope);
+    }
+
+    if (size == 0) {
+        CubeFreeFunc(pUserData, pOriginal);
+        return NULL;
+    } else if (size < cur_track->request_size_bytes) {
+        return pOriginal;
+    } else {
+        void* pNew = CubeAllocFunc(pUserData, size, alignment, allocationScope);
+        size_t copy_size = size;
+        if (cur_track->request_size_bytes < size) {
+            copy_size = cur_track->request_size_bytes;
+        }
+        memcpy(pNew, pOriginal, copy_size);
+        CubeFreeFunc(pUserData, pOriginal);
+        return pNew;
+    }
+}
+
+void InitAllocTracker() {
+    memset(g_alloc_track_array, 0,
+           sizeof(struct AllocTrack) * ALLOC_TRACK_SIZE);
+}
+
+bool IsAllocTrackerEmpty() {
+    bool success = true;
+    char print_command[1024];
+    sprintf(print_command, "\t%%04d\t%%p (%%p) : 0x%%%s (0x%%%s) : scope %%d : user_data 0x%%%s\n",
+            PRIxLEAST64, PRIxLEAST64, PRIxLEAST64);
+    for (uint32_t iii = 0; iii < ALLOC_TRACK_SIZE; iii++) {
+        if (g_alloc_track_array[iii].active) {
+            if (success) {
+                printf("ERROR: Allocations still remain!\n");
+            }
+            printf(print_command, iii,
+                   g_alloc_track_array[iii].aligned_start_addr,
+                   g_alloc_track_array[iii].actual_start_addr,
+                   g_alloc_track_array[iii].request_size_bytes,
+                   g_alloc_track_array[iii].padded_size_bytes,
+                   g_alloc_track_array[iii].scope,
+                   g_alloc_track_array[iii].user_data);
+            success = false;
+        }
+    }
+    return success;
+}
+#endif
+
 /*
  * structure to track all objects related to a texture.
  */
@@ -987,7 +1108,14 @@ static void demo_prepare_buffers(struct demo *demo) {
         .clipped = true,
     };
     uint32_t i;
-    err = demo->fpCreateSwapchainKHR(demo->device, &swapchain_ci, NULL,
+    VkAllocationCallbacks csc_alloc;
+    memset(&csc_alloc, 0, sizeof(VkAllocationCallbacks));
+    csc_alloc.pUserData = (void*)0x00000001;
+    csc_alloc.pfnAllocation = CubeAllocFunc;
+    csc_alloc.pfnReallocation = CubeReallocFunc;
+    csc_alloc.pfnFree = CubeFreeFunc;
+
+    err = demo->fpCreateSwapchainKHR(demo->device, &swapchain_ci, &csc_alloc,
                                      &demo->swapchain);
     assert(!err);
 
@@ -996,7 +1124,7 @@ static void demo_prepare_buffers(struct demo *demo) {
     // Note: destroying the swapchain also cleans up all its associated
     // presentable images once the platform is done with them.
     if (oldSwapchain != VK_NULL_HANDLE) {
-        demo->fpDestroySwapchainKHR(demo->device, oldSwapchain, NULL);
+        demo->fpDestroySwapchainKHR(demo->device, oldSwapchain, &csc_alloc);
     }
 
     err = demo->fpGetSwapchainImagesKHR(demo->device, demo->swapchain,
@@ -1040,7 +1168,13 @@ static void demo_prepare_buffers(struct demo *demo) {
 
         color_image_view.image = demo->buffers[i].image;
 
-        err = vkCreateImageView(demo->device, &color_image_view, NULL,
+        VkAllocationCallbacks ccv_alloc;
+        memset(&ccv_alloc, 0, sizeof(VkAllocationCallbacks));
+        ccv_alloc.pUserData = (void*)0x00000002;
+        ccv_alloc.pfnAllocation = CubeAllocFunc;
+        ccv_alloc.pfnReallocation = CubeReallocFunc;
+        ccv_alloc.pfnFree = CubeFreeFunc;
+        err = vkCreateImageView(demo->device, &color_image_view, &ccv_alloc,
                                 &demo->buffers[i].view);
         assert(!err);
 
@@ -1087,8 +1221,15 @@ static void demo_prepare_depth(struct demo *demo) {
 
     demo->depth.format = depth_format;
 
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pUserData = (void*)0x00000003;
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+
     /* create image */
-    err = vkCreateImage(demo->device, &image, NULL, &demo->depth.image);
+    err = vkCreateImage(demo->device, &image, &alloc_cb, &demo->depth.image);
     assert(!err);
 
     vkGetImageMemoryRequirements(demo->device, demo->depth.image, &mem_reqs);
@@ -1105,7 +1246,8 @@ static void demo_prepare_depth(struct demo *demo) {
     assert(pass);
 
     /* allocate memory */
-    err = vkAllocateMemory(demo->device, &demo->depth.mem_alloc, NULL,
+    alloc_cb.pUserData = (void*)0x00000004;
+    err = vkAllocateMemory(demo->device, &demo->depth.mem_alloc, &alloc_cb,
                            &demo->depth.mem);
     assert(!err);
 
@@ -1116,7 +1258,9 @@ static void demo_prepare_depth(struct demo *demo) {
 
     /* create image view */
     view.image = demo->depth.image;
-    err = vkCreateImageView(demo->device, &view, NULL, &demo->depth.view);
+
+    alloc_cb.pUserData = (void*)0x00000005;
+    err = vkCreateImageView(demo->device, &view, &alloc_cb, &demo->depth.view);
     assert(!err);
 }
 
@@ -1236,8 +1380,15 @@ static void demo_prepare_texture_image(struct demo *demo, const char *filename,
 
     VkMemoryRequirements mem_reqs;
 
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pUserData = (void*)0x00000006;
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+
     err =
-        vkCreateImage(demo->device, &image_create_info, NULL, &tex_obj->image);
+        vkCreateImage(demo->device, &image_create_info, &alloc_cb, &tex_obj->image);
     assert(!err);
 
     vkGetImageMemoryRequirements(demo->device, tex_obj->image, &mem_reqs);
@@ -1253,7 +1404,8 @@ static void demo_prepare_texture_image(struct demo *demo, const char *filename,
     assert(pass);
 
     /* allocate memory */
-    err = vkAllocateMemory(demo->device, &tex_obj->mem_alloc, NULL,
+    alloc_cb.pUserData = (void*)0x00000007;
+    err = vkAllocateMemory(demo->device, &tex_obj->mem_alloc, &alloc_cb,
                            &(tex_obj->mem));
     assert(!err);
 
@@ -1289,15 +1441,27 @@ static void demo_prepare_texture_image(struct demo *demo, const char *filename,
 
 static void demo_destroy_texture_image(struct demo *demo,
                                        struct texture_object *tex_objs) {
+    VkAllocationCallbacks d_alloc;
+    memset(&d_alloc, 0, sizeof(VkAllocationCallbacks));
+    d_alloc.pUserData = (void*)0xFADEB0DDULL;
+    d_alloc.pfnAllocation = CubeAllocFunc;
+    d_alloc.pfnReallocation = CubeReallocFunc;
+    d_alloc.pfnFree = CubeFreeFunc;
     /* clean up staging resources */
-    vkFreeMemory(demo->device, tex_objs->mem, NULL);
-    vkDestroyImage(demo->device, tex_objs->image, NULL);
+    vkFreeMemory(demo->device, tex_objs->mem, &d_alloc);
+    vkDestroyImage(demo->device, tex_objs->image, &d_alloc);
 }
 
 static void demo_prepare_textures(struct demo *demo) {
     const VkFormat tex_format = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormatProperties props;
     uint32_t i;
+
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
 
     vkGetPhysicalDeviceFormatProperties(demo->gpu, tex_format, &props);
 
@@ -1413,13 +1577,15 @@ static void demo_prepare_textures(struct demo *demo) {
         };
 
         /* create sampler */
-        err = vkCreateSampler(demo->device, &sampler, NULL,
+        alloc_cb.pUserData = (void*)0x00000008;
+        err = vkCreateSampler(demo->device, &sampler, &alloc_cb,
                               &demo->textures[i].sampler);
         assert(!err);
 
         /* create image view */
         view.image = demo->textures[i].image;
-        err = vkCreateImageView(demo->device, &view, NULL,
+        alloc_cb.pUserData = (void*)0x00000009;
+        err = vkCreateImageView(demo->device, &view, &alloc_cb,
                                 &demo->textures[i].view);
         assert(!err);
     }
@@ -1434,6 +1600,12 @@ void demo_prepare_cube_data_buffer(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
     bool U_ASSERT_ONLY pass;
     struct vktexcube_vs_uniform data;
+
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
 
     mat4x4_mul(VP, demo->projection_matrix, demo->view_matrix);
     mat4x4_mul(MVP, VP, demo->model_matrix);
@@ -1455,8 +1627,10 @@ void demo_prepare_cube_data_buffer(struct demo *demo) {
     buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buf_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buf_info.size = sizeof(data);
+
+    alloc_cb.pUserData = (void*)0x0000000a;
     err =
-        vkCreateBuffer(demo->device, &buf_info, NULL, &demo->uniform_data.buf);
+        vkCreateBuffer(demo->device, &buf_info, &alloc_cb, &demo->uniform_data.buf);
     assert(!err);
 
     vkGetBufferMemoryRequirements(demo->device, demo->uniform_data.buf,
@@ -1473,7 +1647,8 @@ void demo_prepare_cube_data_buffer(struct demo *demo) {
         &demo->uniform_data.mem_alloc.memoryTypeIndex);
     assert(pass);
 
-    err = vkAllocateMemory(demo->device, &demo->uniform_data.mem_alloc, NULL,
+    alloc_cb.pUserData = (void*)0x0000000b;
+    err = vkAllocateMemory(demo->device, &demo->uniform_data.mem_alloc, &alloc_cb,
                            &(demo->uniform_data.mem));
     assert(!err);
 
@@ -1522,7 +1697,14 @@ static void demo_prepare_descriptor_layout(struct demo *demo) {
     };
     VkResult U_ASSERT_ONLY err;
 
-    err = vkCreateDescriptorSetLayout(demo->device, &descriptor_layout, NULL,
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+
+    alloc_cb.pUserData = (void*)0x0000000c;
+    err = vkCreateDescriptorSetLayout(demo->device, &descriptor_layout, &alloc_cb,
                                       &demo->desc_layout);
     assert(!err);
 
@@ -1533,7 +1715,8 @@ static void demo_prepare_descriptor_layout(struct demo *demo) {
         .pSetLayouts = &demo->desc_layout,
     };
 
-    err = vkCreatePipelineLayout(demo->device, &pPipelineLayoutCreateInfo, NULL,
+    alloc_cb.pUserData = (void*)0x0000000d;
+    err = vkCreatePipelineLayout(demo->device, &pPipelineLayoutCreateInfo, &alloc_cb,
                                  &demo->pipeline_layout);
     assert(!err);
 }
@@ -1607,7 +1790,14 @@ static void demo_prepare_render_pass(struct demo *demo) {
     };
     VkResult U_ASSERT_ONLY err;
 
-    err = vkCreateRenderPass(demo->device, &rp_info, NULL, &demo->render_pass);
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+
+    alloc_cb.pUserData = (void*)0x0000000e;
+    err = vkCreateRenderPass(demo->device, &rp_info, &alloc_cb, &demo->render_pass);
     assert(!err);
 }
 
@@ -1625,7 +1815,14 @@ demo_prepare_shader_module(struct demo *demo, const void *code, size_t size) {
     moduleCreateInfo.codeSize = size;
     moduleCreateInfo.pCode = code;
     moduleCreateInfo.flags = 0;
-    err = vkCreateShaderModule(demo->device, &moduleCreateInfo, NULL, &module);
+
+    VkAllocationCallbacks csm_alloc;
+    memset(&csm_alloc, 0, sizeof(VkAllocationCallbacks));
+    csm_alloc.pUserData = (void*)0x0000000d;
+    csm_alloc.pfnAllocation = CubeAllocFunc;
+    csm_alloc.pfnReallocation = CubeReallocFunc;
+    csm_alloc.pfnFree = CubeFreeFunc;
+    err = vkCreateShaderModule(demo->device, &moduleCreateInfo, &csm_alloc, &module);
     assert(!err);
 
     return module;
@@ -1720,6 +1917,12 @@ static void demo_prepare_pipeline(struct demo *demo) {
     VkPipelineDynamicStateCreateInfo dynamicState;
     VkResult U_ASSERT_ONLY err;
 
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+
     memset(dynamicStateEnables, 0, sizeof dynamicStateEnables);
     memset(&dynamicState, 0, sizeof dynamicState);
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
@@ -1799,7 +2002,8 @@ static void demo_prepare_pipeline(struct demo *demo) {
     memset(&pipelineCache, 0, sizeof(pipelineCache));
     pipelineCache.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 
-    err = vkCreatePipelineCache(demo->device, &pipelineCache, NULL,
+    alloc_cb.pUserData = (void*)0x0000000f;
+    err = vkCreatePipelineCache(demo->device, &pipelineCache, &alloc_cb,
                                 &demo->pipelineCache);
     assert(!err);
 
@@ -1816,12 +2020,14 @@ static void demo_prepare_pipeline(struct demo *demo) {
 
     pipeline.renderPass = demo->render_pass;
 
+    alloc_cb.pUserData = (void*)0x00000010ULL;
     err = vkCreateGraphicsPipelines(demo->device, demo->pipelineCache, 1,
-                                    &pipeline, NULL, &demo->pipeline);
+                                    &pipeline, &alloc_cb, &demo->pipeline);
     assert(!err);
 
-    vkDestroyShaderModule(demo->device, demo->frag_shader_module, NULL);
-    vkDestroyShaderModule(demo->device, demo->vert_shader_module, NULL);
+    alloc_cb.pUserData = (void*)0xFFFFFFFFULL;
+    vkDestroyShaderModule(demo->device, demo->frag_shader_module, &alloc_cb);
+    vkDestroyShaderModule(demo->device, demo->vert_shader_module, &alloc_cb);
 }
 
 static void demo_prepare_descriptor_pool(struct demo *demo) {
@@ -1846,7 +2052,14 @@ static void demo_prepare_descriptor_pool(struct demo *demo) {
     };
     VkResult U_ASSERT_ONLY err;
 
-    err = vkCreateDescriptorPool(demo->device, &descriptor_pool, NULL,
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+    alloc_cb.pUserData = (void*)0x00000011;
+
+    err = vkCreateDescriptorPool(demo->device, &descriptor_pool, &alloc_cb,
                                  &demo->desc_pool);
     assert(!err);
 }
@@ -1912,9 +2125,16 @@ static void demo_prepare_framebuffers(struct demo *demo) {
                                                  sizeof(VkFramebuffer));
     assert(demo->framebuffers);
 
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+    alloc_cb.pUserData = (void*)0x00000012;
+
     for (i = 0; i < demo->swapchainImageCount; i++) {
         attachments[0] = demo->buffers[i].view;
-        err = vkCreateFramebuffer(demo->device, &fb_info, NULL,
+        err = vkCreateFramebuffer(demo->device, &fb_info, &alloc_cb,
                                   &demo->framebuffers[i]);
         assert(!err);
     }
@@ -1922,6 +2142,12 @@ static void demo_prepare_framebuffers(struct demo *demo) {
 
 static void demo_prepare(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
+    VkAllocationCallbacks alloc_cb;
+    memset(&alloc_cb, 0, sizeof(VkAllocationCallbacks));
+    alloc_cb.pfnAllocation = CubeAllocFunc;
+    alloc_cb.pfnReallocation = CubeReallocFunc;
+    alloc_cb.pfnFree = CubeFreeFunc;
+    alloc_cb.pUserData = (void*)0x00000013;
 
     const VkCommandPoolCreateInfo cmd_pool_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1929,7 +2155,7 @@ static void demo_prepare(struct demo *demo) {
         .queueFamilyIndex = demo->graphics_queue_family_index,
         .flags = 0,
     };
-    err = vkCreateCommandPool(demo->device, &cmd_pool_info, NULL,
+    err = vkCreateCommandPool(demo->device, &cmd_pool_info, &alloc_cb,
                               &demo->cmd_pool);
     assert(!err);
 
@@ -1973,7 +2199,8 @@ static void demo_prepare(struct demo *demo) {
             .queueFamilyIndex = demo->present_queue_family_index,
             .flags = 0,
         };
-        err = vkCreateCommandPool(demo->device, &cmd_pool_info, NULL,
+        alloc_cb.pUserData = (void*)0x00000014;
+        err = vkCreateCommandPool(demo->device, &cmd_pool_info, &alloc_cb,
                                   &demo->present_cmd_pool);
         assert(!err);
         const VkCommandBufferAllocateInfo cmd = {
@@ -2016,6 +2243,12 @@ static void demo_prepare(struct demo *demo) {
 
 static void demo_cleanup(struct demo *demo) {
     uint32_t i;
+    VkAllocationCallbacks d_alloc;
+    memset(&d_alloc, 0, sizeof(VkAllocationCallbacks));
+    d_alloc.pUserData = (void*)0xFEEDF00DULL;
+    d_alloc.pfnAllocation = CubeAllocFunc;
+    d_alloc.pfnReallocation = CubeReallocFunc;
+    d_alloc.pfnFree = CubeFreeFunc;
 
     demo->prepared = false;
     vkDeviceWaitIdle(demo->device);
@@ -2023,62 +2256,71 @@ static void demo_cleanup(struct demo *demo) {
     // Wait for fences from present operations
     for (i = 0; i < FRAME_LAG; i++) {
         vkWaitForFences(demo->device, 1, &demo->fences[i], VK_TRUE, UINT64_MAX);
-        vkDestroyFence(demo->device, demo->fences[i], NULL);
-        vkDestroySemaphore(demo->device, demo->image_acquired_semaphores[i], NULL);
-        vkDestroySemaphore(demo->device, demo->draw_complete_semaphores[i], NULL);
+        vkDestroyFence(demo->device, demo->fences[i], &d_alloc);
+        vkDestroySemaphore(demo->device, demo->image_acquired_semaphores[i], &d_alloc);
+        vkDestroySemaphore(demo->device, demo->draw_complete_semaphores[i], &d_alloc);
         if (demo->separate_present_queue) {
-            vkDestroySemaphore(demo->device, demo->image_ownership_semaphores[i], NULL);
+            vkDestroySemaphore(demo->device, demo->image_ownership_semaphores[i], &d_alloc);
         }
     }
 
     for (i = 0; i < demo->swapchainImageCount; i++) {
-        vkDestroyFramebuffer(demo->device, demo->framebuffers[i], NULL);
+        vkDestroyFramebuffer(demo->device, demo->framebuffers[i], &d_alloc);
     }
     free(demo->framebuffers);
-    vkDestroyDescriptorPool(demo->device, demo->desc_pool, NULL);
+    vkDestroyDescriptorPool(demo->device, demo->desc_pool, &d_alloc);
 
-    vkDestroyPipeline(demo->device, demo->pipeline, NULL);
-    vkDestroyPipelineCache(demo->device, demo->pipelineCache, NULL);
-    vkDestroyRenderPass(demo->device, demo->render_pass, NULL);
-    vkDestroyPipelineLayout(demo->device, demo->pipeline_layout, NULL);
-    vkDestroyDescriptorSetLayout(demo->device, demo->desc_layout, NULL);
+    vkDestroyPipeline(demo->device, demo->pipeline, &d_alloc);
+    vkDestroyPipelineCache(demo->device, demo->pipelineCache, &d_alloc);
+    vkDestroyRenderPass(demo->device, demo->render_pass, &d_alloc);
+    vkDestroyPipelineLayout(demo->device, demo->pipeline_layout, &d_alloc);
+    vkDestroyDescriptorSetLayout(demo->device, demo->desc_layout, &d_alloc);
 
     for (i = 0; i < DEMO_TEXTURE_COUNT; i++) {
-        vkDestroyImageView(demo->device, demo->textures[i].view, NULL);
-        vkDestroyImage(demo->device, demo->textures[i].image, NULL);
-        vkFreeMemory(demo->device, demo->textures[i].mem, NULL);
-        vkDestroySampler(demo->device, demo->textures[i].sampler, NULL);
+        vkDestroyImageView(demo->device, demo->textures[i].view, &d_alloc);
+        vkDestroyImage(demo->device, demo->textures[i].image, &d_alloc);
+        vkFreeMemory(demo->device, demo->textures[i].mem, &d_alloc);
+        vkDestroySampler(demo->device, demo->textures[i].sampler, &d_alloc);
     }
-    demo->fpDestroySwapchainKHR(demo->device, demo->swapchain, NULL);
+    demo->fpDestroySwapchainKHR(demo->device, demo->swapchain, &d_alloc);
 
-    vkDestroyImageView(demo->device, demo->depth.view, NULL);
-    vkDestroyImage(demo->device, demo->depth.image, NULL);
-    vkFreeMemory(demo->device, demo->depth.mem, NULL);
+    vkDestroyImageView(demo->device, demo->depth.view, &d_alloc);
+    vkDestroyImage(demo->device, demo->depth.image, &d_alloc);
+    vkFreeMemory(demo->device, demo->depth.mem, &d_alloc);
 
-    vkDestroyBuffer(demo->device, demo->uniform_data.buf, NULL);
-    vkFreeMemory(demo->device, demo->uniform_data.mem, NULL);
+    vkDestroyBuffer(demo->device, demo->uniform_data.buf, &d_alloc);
+    vkFreeMemory(demo->device, demo->uniform_data.mem, &d_alloc);
 
     for (i = 0; i < demo->swapchainImageCount; i++) {
-        vkDestroyImageView(demo->device, demo->buffers[i].view, NULL);
+        vkDestroyImageView(demo->device, demo->buffers[i].view, &d_alloc);
         vkFreeCommandBuffers(demo->device, demo->cmd_pool, 1,
                              &demo->buffers[i].cmd);
     }
     free(demo->buffers);
     free(demo->queue_props);
-    vkDestroyCommandPool(demo->device, demo->cmd_pool, NULL);
+    vkDestroyCommandPool(demo->device, demo->cmd_pool, &d_alloc);
 
     if (demo->separate_present_queue) {
-        vkDestroyCommandPool(demo->device, demo->present_cmd_pool, NULL);
+        vkDestroyCommandPool(demo->device, demo->present_cmd_pool, &d_alloc);
     }
     vkDeviceWaitIdle(demo->device);
-    vkDestroyDevice(demo->device, NULL);
+    vkDestroyDevice(demo->device, &d_alloc);
     if (demo->validate) {
-        demo->DestroyDebugReportCallback(demo->inst, demo->msg_callback, NULL);
+        demo->DestroyDebugReportCallback(demo->inst, demo->msg_callback, &d_alloc);
     }
-    vkDestroySurfaceKHR(demo->inst, demo->surface, NULL);
-    vkDestroyInstance(demo->inst, NULL);
+    vkDestroySurfaceKHR(demo->inst, demo->surface, &d_alloc);
+    vkDestroyInstance(demo->inst, &d_alloc);
 
-#if defined(VK_USE_PLATFORM_XLIB_KHR)
+#if defined(VK_USE_PLATFORM_XLIB_KHR) && defined(VK_USE_PLATFORM_XCB_KHR)
+    if (demo->use_xlib) {
+        XDestroyWindow(demo->display, demo->xlib_window);
+        XCloseDisplay(demo->display);
+    } else {
+        xcb_destroy_window(demo->connection, demo->xcb_window);
+        xcb_disconnect(demo->connection);
+    }
+    free(demo->atom_wm_delete_window);
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
     XDestroyWindow(demo->display, demo->xlib_window);
     XCloseDisplay(demo->display);
 #elif defined(VK_USE_PLATFORM_XCB_KHR)
@@ -2092,12 +2334,22 @@ static void demo_cleanup(struct demo *demo) {
     wl_compositor_destroy(demo->compositor);
     wl_registry_destroy(demo->registry);
     wl_display_disconnect(demo->display);
-#elif defined(VK_USE_PLATFORM_MIR_KHR)
 #endif
+
+    // Check to see if everything got freed properly
+    if (!IsAllocTrackerEmpty()) {
+        assert(false);
+    }
 }
 
 static void demo_resize(struct demo *demo) {
     uint32_t i;
+    VkAllocationCallbacks d_alloc;
+    memset(&d_alloc, 0, sizeof(VkAllocationCallbacks));
+    d_alloc.pUserData = (void*)0xFEEDFEDDULL;
+    d_alloc.pfnAllocation = CubeAllocFunc;
+    d_alloc.pfnReallocation = CubeReallocFunc;
+    d_alloc.pfnFree = CubeFreeFunc;
 
     // Don't react to resize until after first initialization.
     if (!demo->prepared) {
@@ -2111,39 +2363,39 @@ static void demo_resize(struct demo *demo) {
     vkDeviceWaitIdle(demo->device);
 
     for (i = 0; i < demo->swapchainImageCount; i++) {
-        vkDestroyFramebuffer(demo->device, demo->framebuffers[i], NULL);
+        vkDestroyFramebuffer(demo->device, demo->framebuffers[i], &d_alloc);
     }
     free(demo->framebuffers);
-    vkDestroyDescriptorPool(demo->device, demo->desc_pool, NULL);
+    vkDestroyDescriptorPool(demo->device, demo->desc_pool, &d_alloc);
 
-    vkDestroyPipeline(demo->device, demo->pipeline, NULL);
-    vkDestroyPipelineCache(demo->device, demo->pipelineCache, NULL);
-    vkDestroyRenderPass(demo->device, demo->render_pass, NULL);
-    vkDestroyPipelineLayout(demo->device, demo->pipeline_layout, NULL);
-    vkDestroyDescriptorSetLayout(demo->device, demo->desc_layout, NULL);
+    vkDestroyPipeline(demo->device, demo->pipeline, &d_alloc);
+    vkDestroyPipelineCache(demo->device, demo->pipelineCache, &d_alloc);
+    vkDestroyRenderPass(demo->device, demo->render_pass, &d_alloc);
+    vkDestroyPipelineLayout(demo->device, demo->pipeline_layout, &d_alloc);
+    vkDestroyDescriptorSetLayout(demo->device, demo->desc_layout, &d_alloc);
 
     for (i = 0; i < DEMO_TEXTURE_COUNT; i++) {
-        vkDestroyImageView(demo->device, demo->textures[i].view, NULL);
-        vkDestroyImage(demo->device, demo->textures[i].image, NULL);
-        vkFreeMemory(demo->device, demo->textures[i].mem, NULL);
-        vkDestroySampler(demo->device, demo->textures[i].sampler, NULL);
+        vkDestroyImageView(demo->device, demo->textures[i].view, &d_alloc);
+        vkDestroyImage(demo->device, demo->textures[i].image, &d_alloc);
+        vkFreeMemory(demo->device, demo->textures[i].mem, &d_alloc);
+        vkDestroySampler(demo->device, demo->textures[i].sampler, &d_alloc);
     }
 
-    vkDestroyImageView(demo->device, demo->depth.view, NULL);
-    vkDestroyImage(demo->device, demo->depth.image, NULL);
-    vkFreeMemory(demo->device, demo->depth.mem, NULL);
+    vkDestroyImageView(demo->device, demo->depth.view, &d_alloc);
+    vkDestroyImage(demo->device, demo->depth.image, &d_alloc);
+    vkFreeMemory(demo->device, demo->depth.mem, &d_alloc);
 
-    vkDestroyBuffer(demo->device, demo->uniform_data.buf, NULL);
-    vkFreeMemory(demo->device, demo->uniform_data.mem, NULL);
+    vkDestroyBuffer(demo->device, demo->uniform_data.buf, &d_alloc);
+    vkFreeMemory(demo->device, demo->uniform_data.mem, &d_alloc);
 
     for (i = 0; i < demo->swapchainImageCount; i++) {
-        vkDestroyImageView(demo->device, demo->buffers[i].view, NULL);
+        vkDestroyImageView(demo->device, demo->buffers[i].view, &d_alloc);
         vkFreeCommandBuffers(demo->device, demo->cmd_pool, 1,
                              &demo->buffers[i].cmd);
     }
-    vkDestroyCommandPool(demo->device, demo->cmd_pool, NULL);
+    vkDestroyCommandPool(demo->device, demo->cmd_pool, &d_alloc);
     if (demo->separate_present_queue) {
-        vkDestroyCommandPool(demo->device, demo->present_cmd_pool, NULL);
+        vkDestroyCommandPool(demo->device, demo->present_cmd_pool, &d_alloc);
     }
     free(demo->buffers);
 
@@ -2767,7 +3019,14 @@ static void demo_init_vk(struct demo *demo) {
 
     uint32_t gpu_count;
 
-    err = vkCreateInstance(&inst_info, NULL, &demo->inst);
+    VkAllocationCallbacks ci_alloc;
+    memset(&ci_alloc, 0, sizeof(VkAllocationCallbacks));
+    ci_alloc.pUserData = (void*)0xDEADBEEFULL;
+    ci_alloc.pfnAllocation = CubeAllocFunc;
+    ci_alloc.pfnReallocation = CubeReallocFunc;
+    ci_alloc.pfnFree = CubeFreeFunc;
+
+    err = vkCreateInstance(&inst_info, &ci_alloc, &demo->inst);
     if (err == VK_ERROR_INCOMPATIBLE_DRIVER) {
         ERR_EXIT("Cannot find a compatible Vulkan installable client driver "
                  "(ICD).\n\nPlease look at the Getting Started guide for "
@@ -2867,6 +3126,12 @@ static void demo_init_vk(struct demo *demo) {
             ERR_EXIT("GetProcAddr: Unable to find vkDebugReportMessageEXT\n",
                      "vkGetProcAddr Failure");
         }
+        VkAllocationCallbacks dr_alloc;
+        memset(&dr_alloc, 0, sizeof(VkAllocationCallbacks));
+        dr_alloc.pUserData = (void*)0x00000020;
+        dr_alloc.pfnAllocation = CubeAllocFunc;
+        dr_alloc.pfnReallocation = CubeReallocFunc;
+        dr_alloc.pfnFree = CubeFreeFunc;
 
         VkDebugReportCallbackCreateInfoEXT dbgCreateInfo;
         PFN_vkDebugReportCallbackEXT callback;
@@ -2877,7 +3142,7 @@ static void demo_init_vk(struct demo *demo) {
         dbgCreateInfo.pUserData = demo;
         dbgCreateInfo.flags =
             VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
-        err = demo->CreateDebugReportCallback(demo->inst, &dbgCreateInfo, NULL,
+        err = demo->CreateDebugReportCallback(demo->inst, &dbgCreateInfo, &dr_alloc,
                                               &demo->msg_callback);
         switch (err) {
         case VK_SUCCESS:
@@ -2949,13 +3214,25 @@ static void demo_create_device(struct demo *demo) {
         queues[1].flags = 0;
         device.queueCreateInfoCount = 2;
     }
-    err = vkCreateDevice(demo->gpu, &device, NULL, &demo->device);
+    VkAllocationCallbacks cd_alloc;
+    memset(&cd_alloc, 0, sizeof(VkAllocationCallbacks));
+    cd_alloc.pUserData = (void*)0xDECAFBADULL;
+    cd_alloc.pfnAllocation = CubeAllocFunc;
+    cd_alloc.pfnReallocation = CubeReallocFunc;
+    cd_alloc.pfnFree = CubeFreeFunc;
+    err = vkCreateDevice(demo->gpu, &device, &cd_alloc, &demo->device);
     assert(!err);
 }
 
 static void demo_init_vk_swapchain(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
     uint32_t i;
+    VkAllocationCallbacks cd_alloc;
+    memset(&cd_alloc, 0, sizeof(VkAllocationCallbacks));
+    cd_alloc.pUserData = (void*)0x00000030ULL;
+    cd_alloc.pfnAllocation = CubeAllocFunc;
+    cd_alloc.pfnReallocation = CubeReallocFunc;
+    cd_alloc.pfnFree = CubeFreeFunc;
 
 // Create a WSI surface for the window:
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
@@ -2967,8 +3244,8 @@ static void demo_init_vk_swapchain(struct demo *demo) {
     createInfo.hwnd = demo->window;
 
     err =
-        vkCreateWin32SurfaceKHR(demo->inst, &createInfo, NULL, &demo->surface);
-#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+        vkCreateWin32SurfaceKHR(demo->inst, &createInfo, &cd_alloc, &demo->surface);
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR) && !defined(VK_USE_PLATFORM_XCB_KHR)
     VkWaylandSurfaceCreateInfoKHR createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
     createInfo.pNext = NULL;
@@ -3117,17 +3394,19 @@ static void demo_init_vk_swapchain(struct demo *demo) {
         .flags = VK_FENCE_CREATE_SIGNALED_BIT
     };
     for (uint32_t i = 0; i < FRAME_LAG; i++) {
-        vkCreateFence(demo->device, &fence_ci, NULL, &demo->fences[i]);
-        err = vkCreateSemaphore(demo->device, &semaphoreCreateInfo, NULL,
+        cd_alloc.pUserData = (void*)0x00000031;
+        vkCreateFence(demo->device, &fence_ci, &cd_alloc, &demo->fences[i]);
+        cd_alloc.pUserData = (void*)0x00000032;
+        err = vkCreateSemaphore(demo->device, &semaphoreCreateInfo, &cd_alloc,
                                 &demo->image_acquired_semaphores[i]);
         assert(!err);
 
-        err = vkCreateSemaphore(demo->device, &semaphoreCreateInfo, NULL,
+        err = vkCreateSemaphore(demo->device, &semaphoreCreateInfo, &cd_alloc,
                                 &demo->draw_complete_semaphores[i]);
         assert(!err);
 
         if (demo->separate_present_queue) {
-            err = vkCreateSemaphore(demo->device, &semaphoreCreateInfo, NULL,
+            err = vkCreateSemaphore(demo->device, &semaphoreCreateInfo, &cd_alloc,
                                     &demo->image_ownership_semaphores[i]);
             assert(!err);
         }
@@ -3203,6 +3482,9 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
     vec3 eye = {0.0f, 3.0f, 5.0f};
     vec3 origin = {0, 0, 0};
     vec3 up = {0.0f, 1.0f, 0.0};
+
+    // Initialize the tracking memory
+    InitAllocTracker();
 
     memset(demo, 0, sizeof(*demo));
     demo->presentMode = VK_PRESENT_MODE_FIFO_KHR;

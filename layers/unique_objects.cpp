@@ -432,7 +432,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateComputePipelines(VkDevice device, VkPipelin
         uint64_t unique_id = 0;
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t i = 0; i < createInfoCount; ++i) {
-            if (pPipelines[i] != nullptr) {
+            if (pPipelines[i] != VK_NULL_HANDLE) {
                 unique_id = global_unique_id++;
                 my_device_data->unique_id_mapping[unique_id] = reinterpret_cast<uint64_t &>(pPipelines[i]);
                 pPipelines[i] = reinterpret_cast<VkPipeline &>(unique_id);
@@ -490,7 +490,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateGraphicsPipelines(VkDevice device, VkPipeli
         uint64_t unique_id = 0;
         std::lock_guard<std::mutex> lock(global_lock);
         for (uint32_t i = 0; i < createInfoCount; ++i) {
-            if (pPipelines[i] != nullptr) {
+            if (pPipelines[i] != VK_NULL_HANDLE) {
                 unique_id = global_unique_id++;
                 my_device_data->unique_id_mapping[unique_id] = reinterpret_cast<uint64_t &>(pPipelines[i]);
                 pPipelines[i] = reinterpret_cast<VkPipeline &>(unique_id);

@@ -21,11 +21,12 @@
 // Allow use of STL min and max functions in Windows
 #define NOMINMAX
 
+#include <algorithm>
+#include <sstream>
+
 #include "descriptor_sets.h"
 #include "vk_enum_string_helper.h"
 #include "vk_safe_struct.h"
-#include <sstream>
-#include <algorithm>
 
 // Construct DescriptorSetLayout instance from given create info
 cvdescriptorset::DescriptorSetLayout::DescriptorSetLayout(const VkDescriptorSetLayoutCreateInfo *p_create_info,

@@ -3,6 +3,8 @@
 import sys
 import xml.etree.ElementTree as etree
 import urllib2
+import operator
+import re
 
 #############################
 # spec.py script
@@ -25,6 +27,16 @@ import urllib2
 #
 # TODO:
 #  1. Improve string matching to add more automation for figuring out which messages are changed vs. completely new
+#  2. Create "-migrate" option that will:
+#    a. Read in the updated spec that includes explicit error ids (excluding any ids prefix)
+#    b. Read in existing error ids in from the database file
+#    c. Map the old ids to the new ids
+#        I. For every old id that has an exact string match for the new id, migrate that data to the new id
+#       II. For every old id where no new id match is found, look at it by hand and see if check was deleted or change, then manually remap as needed
+#      III. For every new id w/o a match, just use it's id and create default database entry
+#    d. Output the updated header file and database file
+#    e. For every check in the source, replace it with the new id
+#
 #
 #############################
 
@@ -34,6 +46,7 @@ out_filename = "vk_validation_error_messages.h" # can override w/ '-out <filenam
 db_filename = "vk_validation_error_database.txt" # can override w/ '-gendb <filename>' option
 gen_db = False # set to True when '-gendb <filename>' option provided
 spec_compare = False # set to True with '-compare <db_filename>' option
+migrate_ids = False # set to True with '-migrate' option to move old ids from database to new ids in spec
 # This is the root spec link that is used in error messages to point users to spec sections
 #old_spec_url = "https://www.khronos.org/registry/vulkan/specs/1.0/xhtml/vkspec.html"
 spec_url = "https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/vkspec.html"
@@ -143,6 +156,7 @@ class Specification:
                 if len(code_text_list) > 1 and code_text_list[1].startswith('vk'):
                     api_function = code_text_list[1].strip('(')
                     #print "Found API function: %s" % (api_function)
+            # TODO : Need to update this when valid ids are explicit in the spec
             elif tag.tag == '{http://www.w3.org/1999/xhtml}div' and tag.get('class') == 'sidebar':
                 # parse down sidebar to check for valid usage cases
                 valid_usage = False
@@ -213,7 +227,7 @@ class Specification:
                 print "String '%s' repeated %d times" % (es, repeat_string)
         print "Found %d repeat strings" % (repeat_string)
     def genDB(self, db_file):
-        """Generate a database of check_enum, check_coded?, testname, error_string"""
+        """Generate a database of check_enum, check_coded?, testname, api, error_string, note"""
         db_lines = []
         # Write header for database file
         db_lines.append("# This is a database file with validation error check information")
@@ -244,7 +258,7 @@ class Specification:
         with open(db_file, "w") as outfile:
             outfile.write("\n".join(db_lines))
     def readDB(self, db_file):
-        """Read a db file into a dict, format of each line is <enum><implemented Y|N?><testname><errormsg>"""
+        """Read a db file into a dict, format of each line is <enum><implemented Y|N?><testname><api><errormsg><note>"""
         db_dict = {} # This is a simple db of just enum->errormsg, the same as is created from spec
         max_id = 0
         with open(db_file, "r") as infile:
@@ -366,6 +380,81 @@ class Specification:
         # Assign parsed dict to be the udpated dict based on db compare
         print "In compareDB parsed %d entries" % (ids_parsed)
         return updated_val_error_dict
+    def migrateIDs(self, db_error_msg_dict, max_id):
+        # For every old id that has exact string match for the new id, migrate data to new id
+        db_err_to_id_dict = {}
+        for enum in db_error_msg_dict:
+            # Store both the entire error msg & just the string before the spec link
+            #  We'll match off of the short string and then save the whole string
+            full_error = db_error_msg_dict[enum]
+            short_error = full_error.split('(', 1)[0]
+            db_err_to_id_dict[short_error] = {}
+            db_err_to_id_dict[short_error]['enum'] = enum
+            db_err_to_id_dict[short_error]['full_error'] = full_error
+        new_err_to_id_dict = {}
+        new_enums = set() # Store new ids to keep track of which ones we map
+        for enum in self.val_error_dict:
+            full_error = self.val_error_dict[enum]['error_msg']
+            short_error = full_error.split('(', 1)[0]
+            new_err_to_id_dict[short_error] = {}
+            new_err_to_id_dict[short_error]['enum'] = enum
+            new_err_to_id_dict[short_error]['full_error'] = full_error
+            new_enums.add(enum)
+        # Create an updated dict in-place that will be assigned to self.val_error_dict when done
+        updated_val_error_dict = {}
+        updated_db_dict = {}
+        old_to_new_id_mapping = {} # store mapping of old ids to new ids
+        for db_msg in db_err_to_id_dict:
+            # If a db message is in the new, then we need to use that new ID
+            if db_msg in new_err_to_id_dict:
+                # Record old to new mapping
+                orig_enum = db_err_to_id_dict[db_msg]['enum']
+                new_enum = new_err_to_id_dict[db_msg]['enum']
+                old_to_new_id_mapping[orig_enum] = new_enum
+                # Record info in updated dict
+                updated_val_error_dict[new_enum] = {}
+                updated_val_error_dict[new_enum]['error_msg'] = new_err_to_id_dict[db_msg]['full_error']
+                updated_val_error_dict[new_enum]['api'] = self.error_db_dict[orig_enum]['api']
+                # Update db dict stores new ids with old db data
+                updated_db_dict[new_enum] = {}
+                updated_db_dict[new_enum]['check_implemented'] = self.error_db_dict[orig_enum]['check_implemented']
+                updated_db_dict[new_enum]['testname'] = self.error_db_dict[orig_enum]['testname']
+                updated_db_dict[new_enum]['api'] = self.error_db_dict[orig_enum]['api']
+                updated_db_dict[new_enum]['error_string'] = self.error_db_dict[orig_enum]['error_string']
+                updated_db_dict[new_enum]['note'] = self.error_db_dict[orig_enum]['note']
+                # We've migrated this enum so remove it from set
+                new_enums.remove(db_msg)
+            else:
+                print "WARN: Did not find db error message in new spec: %s" % (db_msg)
+        # Now go through any remaining new ids
+        for new_id in new_enums:
+            # Update the db dict with new id
+            updated_db_dict[new_id] = {}
+            updated_db_dict[new_id]['check_implemented'] = 'U'
+            updated_db_dict[new_id]['testname'] = 'Unknown'
+            updated_db_dict[new_id]['api'] = self.val_error_dict[new_id]['api']
+            updated_db_dict[new_id]['error_string'] = self.val_error_dict[new_id]['error_msg']
+            updated_db_dict[new_id]['note'] = ''
+        # Assign internal dicts to the new dicts
+        self.error_db_dict = updated_db_dict
+        self.val_error_dict = updated_val_error_dict
+        # Now parse through source files and replace any old ids with their new counterparts
+        layer_source_files = ['core_validation.cpp','descriptor_sets.cpp','parameter_validation.cpp','object_tracker.cpp','image.cpp']
+        # Create a data struct of old->new ids based on new ids so we don't double-replace any ids
+        new_id_sorted_list = sorted(old_to_new_id_mapping, key=operator.itemgetter(1))
+        # For each file in source file list
+        for source_file in layer_source_files:
+            with open(source_file, 'r+') as f:
+                #  Read in the file
+                src_txt = f.read()
+                # For each old id, replace it with the new id
+                for old_new_tuple in new_id_sorted_list:
+                    src_txt = re.sub(old_new_tuple[0], old_new_tuple[1], src_txt)
+                f.seek(0)
+                #  Write out file if there were updates
+                f.write(src_txt)
+                f.truncate()
+                
     def validateUpdateDict(self, update_dict):
         """Compare original dict vs. update dict and make sure that all of the checks are still there"""
         # Currently just make sure that the same # of checks as the original checks are there
@@ -431,6 +520,8 @@ if __name__ == "__main__":
         elif (arg == '-remap'):
             updateRemapDict(sys.argv[i])
             i = i + 1
+        elif (arg == '-migrate'):
+            migrate_ids = True
         elif (arg in ['-help', '-h']):
             printHelp()
             sys.exit()
@@ -441,6 +532,15 @@ if __name__ == "__main__":
     spec.loadFile(use_online, spec_filename)
     #spec.parseTree()
     #spec.genHeader(out_filename)
+    if (migrate_ids):
+        # Updated spec is already read into spec
+        # Read in existing error ids from database
+        (db_err_msg_dict, max_id) = spec.readDB(db_filename)
+        spec.migrateIDs(db_err_msg_dict, max_id)
+        spec.genDB(db_filename)
+        spec.genHeader(out_filename)
+        sys.exit()
+    # Primary code path        
     spec.analyze()
     if (spec_compare):
         # Read in old spec info from db file

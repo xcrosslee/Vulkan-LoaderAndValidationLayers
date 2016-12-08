@@ -700,9 +700,15 @@ layer information.  In order to find properly-installed layers, the Vulkan loade
 will read the JSON files to identify the names and attributes of layers and their
 extensions. The use of manifest files allows the loader to avoid loading any
 shared library files when the application does not query nor request any
-extensions.
+extensions.  The format of [Layer Manifest File](#layer-manifest-file-format)
+is detailed below.
 
-See the [Layer Manifest File Format](#layer-manifest-file-format) section for more details.
+On Android, the loader queries the layer libraries via the special functions
+known as "introspection" functions to determine the same information as that
+contained inside of the manifest files.  These introspection functions are
+not used by the desktop loader but are present to maintain consistency
+across loaders.  The specific "introspection" functions are called out in
+the [Layer Manifest File Format](#layer-manifest-file-format) table.
 
 
 ##### Android Layer Discovery
@@ -767,7 +773,6 @@ information on this.
 On Windows and Linux (desktop), the loader uses manifest files to discover
 layer libraries and layers.  The desktop loader doesn't directly query the
 layer library except during chaining.
-On Android, the loader queries the layer libraries via the introspection functions as outlined below.
 
 The following section discusses the details of the Layer Manifest JSON file format.
 The JSON file itself does not have any requirements for naming.  The only requirement is that
@@ -1305,8 +1310,6 @@ signatures, and other similarities:
   - "physicalDevice" is always `VK_NULL_HANDLE`.
   - "pLayerName" is always a valid layer name.
   - This function never fails.
-
-The introspection functions are not used by the desktop loader.
 
 It must also define and export these functions once for each layer in the library:
 

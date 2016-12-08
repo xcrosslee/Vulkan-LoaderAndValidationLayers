@@ -30,7 +30,7 @@
   * [ICD Dispatchable Object Creation](#icd-dispatchable-object-creation)
   * [Handling KHR Surface Objects in WSI Extensions](#handling-khr-surface-objects-in-wsi-extensions)
   * [Loader and ICD Interface Negotiation](#loader-and-icd-interface-negotiation)
-
+ * [Glossary of Terms](#glossary-of-terms)
  
 ## Overview
 
@@ -684,14 +684,12 @@ version, and any extensions supported by the layer.  This information is
 provided back to an application through the `vkEnumerateInstanceLayerProperties`
 command.
 
-A layer library is a container of layers.  This section defines an
-extensible interface to discover layers contained in layer libraries.
-The extensible programming interface is used on Android only. For
-Windows and Linux, the layer manifest JSON files are used.
+The group of layers available to the loader is known as a layer library.  This
+section defines an extensible interface to discover what layers are contained in
+the layer library.
 
-It also specifies the minimal conventions and rules a layer must
-follow. Other sections might have other guidelines that layers should
-follow.
+This section also specifies the minimal conventions and rules a layer must
+follow, especially with regards to interacting with the loader and other layers.
 
 ##### Layer Manifest File Usage
 
@@ -703,11 +701,12 @@ shared library files when the application does not query nor request any
 extensions.  The format of [Layer Manifest File](#layer-manifest-file-format)
 is detailed below.
 
-On Android, the loader queries the layer libraries via the special functions
-known as "introspection" functions to determine the same information as that
-contained inside of the manifest files.  These introspection functions are
-not used by the desktop loader but are present to maintain consistency
-across loaders.  The specific "introspection" functions are called out in
+The Android loader does not use manifest files.  Instead, the loader queries the
+layer properties using special functions known as "introspection" functions.
+The intent of these functions is to determine the same required information
+gathered from reading the manifest files.  These introspection functions are
+not used by the desktop loader but should be present in layers to maintain
+consistency.  The specific "introspection" functions are called out in
 the [Layer Manifest File Format](#layer-manifest-file-format) table.
 
 
@@ -772,7 +771,10 @@ information on this.
 
 On Windows and Linux (desktop), the loader uses manifest files to discover
 layer libraries and layers.  The desktop loader doesn't directly query the
-layer library except during chaining.
+layer library except during chaining.  This is to reduce the likelihood of
+loading a malicious layer into memory.  Instead, details are read from the
+Manifest file, which are then provided for applications to determine what
+layers should actually be loaded.
 
 The following section discusses the details of the Layer Manifest JSON file format.
 The JSON file itself does not have any requirements for naming.  The only requirement is that
@@ -1806,3 +1808,21 @@ table as described above. The only difference is that the Android
 loader queries layer and extension information directly from the
 respective libraries and does not use the json manifest files used
 by the Windows and Linux loaders.
+
+ 
+## Glossary of Terms
+
+| Field Name | Field Value |
+|----------------|--------------------|
+| Android Loader | The loader designed to work primarily for the Android OS.  This is generated from a different code-base than the desktop loader.  But, in all important aspects, should be functionally equivalent. |
+| Desktop Loader | The loader designed to work on both Windows and Linux.  This is generated from a different [code-base](#https://github.com/KhronosGroup/Vulkan-LoaderAndValidationLayers) than the Android loader.  But in all important aspects, should be functionally equivalent. |
+| Device Call Chain | The chain of commands followed for device commands.  This chain for a device command is usually as follows: first the application calls into a loader trampoline, then the loader trampoline calls enabled layers, the final layer calls into the ICD specific to the device.  See the [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section for more information |
+| Device Command | A Device command is any Vulkan command which takes a `VkDevice`, `VkQueue`, `VkCommandBuffer`, or any child of these, as its first parameter.  Some Vulkan Device commands are: `vkQueueSubmit`, `vkBeginCommandBuffer`, `vkCreateEvent`.  See the [Instance Versus Device](#instance-versus-device) section for more information. |
+| ICD | Acronym for Installable Client Driver.  These are drivers that are provided by IHVs to interact with the hardware they provide.  See [Installable Client Drivers](#installable-client-drivers) section for more information.
+| IHV | Acronym for an Independent Hardware Vendor.  Typically the company that built the underlying hardware technology you are trying to use.  A typical examples for a Graphics IHV are: AMD, ARM, Imagination, Intel, Nvidia, Qualcomm, etc. |
+| Instance Call Chain | The chain of commands followed for instance commands.  This chain for an instance command is usually as follows: first the application calls into a loader trampoline, then the loader trampoline calls enabled layers, the final layer calls a loader terminator, and the loader terminator calls all available ICDs.  See the [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section for more information |
+| Instance Command | An Instance command is any Vulkan command which takes as its first parameter either a `VkInstance` or a `VkPhysicalDevice` or nothing at all.  Some Vulkan Instance commands are: `vkEnumerateInstanceExtensionProperties`, `vkEnumeratePhysicalDevices`, `vkCreateInstance`, `vkDestroyInstance`.  See the [Instance Versus Device](#instance-versus-device) section for more information. |
+| Layer | Layers are optional components that augment the Vulkan system.  They can intercept, evaluate, and modify existing Vulkan commands on their way from the application down to the hardware.  See the [Layers](#layers) section for more information. |
+| Loader | The middle-ware program which acts as the mediator between Vulkan applications, Vulkan layers and Vulkan drivers.  See [The Loader](#the loader) section for more information. |
+| Manifest Files | Data files in JSON format used by the desktop loader.  These files contain specific information for either a [Layer](#layer-manifest-file-format) or an [ICD](#icd-manifest-file-format).
+| WSI Extension | Acronym for Windowing System Integration.  A Vulkan extension targeting a particular Windowing and designed to interface between the Windowing system and Vulkan. See [WSI Extensions](#wsi-extensions) for more information. |

@@ -10,7 +10,7 @@
   * [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains)
 
  * [Application Interface to the Loader](#application-interface-to-the-loader)
-  * [Interfacing with Vulkan Commands](#interfacing-with-vulkan-commands)
+  * [Interfacing with Vulkan Functions](#interfacing-with-vulkan-functions)
   * [Application Layer Usage](#application-layer-usage)
   * [Application Usage of Extensions](#application-usage-of-extensions)
 
@@ -49,8 +49,8 @@ for Windows, Linux and Android based systems.
 #### Who Should Read This Document
 
 While this document is primarily targeted at developers of Vulkan applications,
-drivers and layers, the information contained in it could be useful to any
-developer.
+drivers and layers, the information contained in it could be useful to anyone
+wanting a better understanding of the Vulkan runtime.
 
 
 #### The Loader
@@ -63,12 +63,12 @@ hardware.  An important point to remember is that Vulkan-capable hardware can be
 graphics-based, compute-based, or both.
 
 The loader is responsible for working with the various layers as well as
-supporting multiple GPUs and their drivers.  Any Vulkan command may
+supporting multiple GPUs and their drivers.  Any Vulkan function may
 wind up calling into a diverse set of modules: loader, layers, and ICDs.
 The loader is critical to managing the proper dispatching of Vulkan
-commands to the appropriate set of layers and ICDs. The Vulkan object
+functions to the appropriate set of layers and ICDs. The Vulkan object
 model allows the loader to insert layers into a call chain so that the layers
-can process Vulkan commands prior to the ICD being called.
+can process Vulkan functions prior to the ICD being called.
 
 This document is intended to provide an overview of the necessary interfaces between each of these.
 
@@ -76,7 +76,7 @@ This document is intended to provide an overview of the necessary interfaces bet
 ##### Goals of the Loader
 
 The loader was designed with the following goals in mind.
- 1. Support one or more Vulkan-capable ICD on a user's computer system without them interfering with each other.
+ 1. Support one or more Vulkan-capable ICD on a user's computer system without them interfering with one another.
  2. Support Vulkan Layers which are optional modules that can be enabled by an application, developer, or standard system settings.
  3. Impact the overall performance of a Vulkan application in the lowest possible fashion.
 
@@ -84,20 +84,20 @@ The loader was designed with the following goals in mind.
 #### Layers
 
 Layers are optional components that augment the Vulkan system.  They can intercept,
-evaluate, and modify existing Vulkan commands on their way from the application down
+evaluate, and modify existing Vulkan functions on their way from the application down
 to the hardware.  Layers are implemented as libraries that can be enabled in different ways
 (including by application request) and are loaded during CreateInstance.  Each
-layer can chooses to hook (intercept) any Vulkan commands which in turn
+layer can chooses to hook (intercept) any Vulkan functions which in turn
 can be ignored, augmented, or simply passed along.  A layer does not need to intercept
-all Vulkan commands.  It may choose to intercept all known commands, or, it
-may choose to intercept only one command.
+all Vulkan functions.  It may choose to intercept all known functions, or, it
+may choose to intercept only one function.
 
 Some examples of features that layers may expose include:
  * Validating API usage
  * Adding the ability to perform Vulkan API tracing and debugging
  * Overlay additional content on the applications surfaces
 
-Because layers are optionaly, you may choose to enable layers for debugging your application,
+Because layers are optionally, you may choose to enable layers for debugging your application,
 but then disable any layer usage when you release your product.
 
 
@@ -113,38 +113,38 @@ physical devices available  for an application and return this information to th
 #### Instance Versus Device
 
 There is an important concept which you will see brought up repeatedly throughout this
-document.  Many commands, extensions, and other things in Vulkan are separated into
+document.  Many functions, extensions, and other things in Vulkan are separated into
 two main groups:
- * Instance-related Items
- * Device-related Items
+ * Instance-related Objects
+ * Device-related Objects
 
 
-##### Instance-related Items
+##### Instance-related Objects
 
 A Vulkan Instance is a high-level construct used to provide Vulkan system-level
-information, or functionality.  Vulkan items associated directly with an instance are:
+information, or functionality.  Vulkan objects associated directly with an instance are:
  * `VkInstance`
  * `VkPhysicalDevice`
 
-An Instance command is any Vulkan command which takes as its first parameter either an
-item from the Instance list, or nothing at all.  Some Vulkan Instance commands are:
+An Instance function is any Vulkan function which takes as its first parameter either an
+object from the Instance list, or nothing at all.  Some Vulkan Instance functions are:
  * `vkEnumerateInstanceExtensionProperties`
  * `vkEnumeratePhysicalDevices`
  * `vkCreateInstance`
  * `vkDestroyInstance`
 
-You query commands Vulkan Instance commands using the `vkGetInstanceProcAddr` command.
+You query Vulkan Instance functions using `vkGetInstanceProcAddr`.
 `vkGetInstanceProcAddr` can be used to query either device or instance entry points
 in addition to all core entry points.  The returned function pointer is valid for
-this Instance and any item created under this Instance (including all `VkDevice` objects).  
+this Instance and any object created under this Instance (including all `VkDevice` objects).  
 
-Similarly, an Instance extension is a set of Vulkan Instance commands extending the Vulkan language.
+Similarly, an Instance extension is a set of Vulkan Instance functions extending the Vulkan language.
 These will be discussed in more detail later.
 
 
-##### Device-related Items
+##### Device-related Objects
 
-A Vulkan Device, on the other-hand, is a logical identifier used to associate commands 
+A Vulkan Device, on the other-hand, is a logical identifier used to associate functions 
 with a particular physical device on a user's system.  Vulkan constructs associated directly
 with a device include:
  * `VkDevice`
@@ -152,27 +152,27 @@ with a device include:
  * `VkCommandBuffer`
  * Any dispatchable object that is a child of a one of the above.
 
-A Device command is any Vulkan command which takes any Device item as its first
-parameter.  Some Vulkan Device commands are:
+A Device function is any Vulkan function which takes any Device Object as its first
+parameter.  Some Vulkan Device functions are:
  * `vkQueueSubmit`
  * `vkBeginCommandBuffer`
  * `vkCreateEvent`
 
-You can query commands Vulkan Device commands using either the `vkGetInstanceProcAddr` or 
-`vkGetDeviceProcAddr` commands.  If you choose to use `vkGetInstanceProcAddr`, it will have additional
+You can query Vulkan Device functions using either `vkGetInstanceProcAddr` or 
+`vkGetDeviceProcAddr`.  If you choose to use `vkGetInstanceProcAddr`, it will have an additional
 level built into the call chain, which will reduce performance slightly.  However, the function pointer
 returned can be used for any device created later, as long as it is associated with the same Vulkan Instance.
 If, instead you use `vkGetDeviceProcAddr`, the call chain will be more optimized to the specific device,
-but it will **only** work for the device used to query the command function pointer.  Also, unlike
-`vkGetInstanceProcAddr`, `vkGetDeviceProcAddr` can only be used on core Vulkan Device commands, or
-Device extension commands.
+but it will **only** work for the device used to query the function function pointer.  Also, unlike
+`vkGetInstanceProcAddr`, `vkGetDeviceProcAddr` can only be used on core Vulkan Device functions, or
+Device extension functions.
 
-The best solution is to query Instance extension commands using `vkGetInstanceProcAddr`, and to
-query Device extension commands using `vkGetDeviceProcAddr`.  See
+The best solution is to query Instance extension functions using `vkGetInstanceProcAddr`, and to
+query Device extension functions using `vkGetDeviceProcAddr`.  See
 [Best Application Performance Setup](#best-application-performance-setup) for more information on this.
 
 As with Instance extensions, a Device extension is a set of Vulkan Device
-commands extending the Vulkan language. You can read more about these later in the document.
+functions extending the Vulkan language. You can read more about these later in the document.
 
 
 #### Dispatch Tables and Call Chains
@@ -197,10 +197,10 @@ function and each entry of the dispatch table will point to the first element of
 chain. Thus, the loader builds an instance call chain for each `VkInstance` that is
 created and a device call chain for each `VkDevice` that is created.
 
-When an application calls a Vulkan command, this typically will first hit a
-*trampoline* function in the laoder.  These *trampoline* functions are small,
+When an application calls a Vulkan function, this typically will first hit a
+*trampoline* function in the loader.  These *trampoline* functions are small,
 simple functions that jump to the appropriate dispatch table entry for the
-object they are given.  Additionally, for commands in the instance call chain,
+object they are given.  Additionally, for functions in the instance call chain,
 the loader has an additional function, called a *terminator*, which is called
 after all enabled layers to marshall the appropriate information to all available
 ICDs.
@@ -215,22 +215,22 @@ the loader again where this function calls every ICD's `vkCreateInstance` and
 saves the results. This allows every enabled layer for this chain to set up
 what it needs based on the `VkInstanceCreateInfo` structure from the application.
 
-![Instance Chain](./images/loader_instance_chain.png)
+![Instance Call Chain](./images/loader_instance_chain.png)
 
 This also highlights some of the complexity the loader must manage when using
-instance chains. As shown here, the loader's *terminator* must aggregate information
+instance call chains. As shown here, the loader's *terminator* must aggregate information
 to and from multiple ICDs when they are present. This implies that the loader
-has to be aware of any instance level extensions which work on a `VkInstance` to
+has to be aware of any instance-level extensions which work on a `VkInstance` to
 aggregate them correctly.
 
 
 ##### Device Call Chain Example
 
-Device chains are created at `vkCreateDevice` and are generally simpler because
+Device call chains are created at `vkCreateDevice` and are generally simpler because
 they deal with only a single device and the ICD can always be the *terminator* of
 the chain. 
 
-![Loader Device Chain](./images/loader_device_chain_loader.png)
+![Loader Device Call Chain](./images/loader_device_chain_loader.png)
 
 
 <br/>
@@ -239,7 +239,7 @@ the chain.
 ## Application Interface to the Loader
 
 In this section we'll discuss how an application interacts with the loader, including:
- * [Interfacing with Vulkan Commands](#interfacing-with-vulkan-commands)
+ * [Interfacing with Vulkan Functions](#interfacing-with-vulkan-functions)
   * [Vulkan Direct Exports](#vulkan-direct-exports)
   * [Indirectly Linking to the Loader](#indirectly-linking-to-the-loader)
   * [Best Application Performance Setup](#best-application-performance-setup)
@@ -255,8 +255,8 @@ In this section we'll discuss how an application interacts with the loader, incl
   * [Unknown Extensions](#unknown-extensions)  
 
   
-#### Interfacing with Vulkan Commands
-There are several ways you can interface with Vulkan commands through the loader.
+#### Interfacing with Vulkan Functions
+There are several ways you can interface with Vulkan functions through the loader.
 
 
 ##### Vulkan Direct Exports
@@ -285,46 +285,46 @@ in a platform-independent way.
 ##### Best Application Performance Setup
 
 If you desire the best performance possible, you should setup your own
-dispatch table so that all your Instance commands are queried using `vkGetInstanceProcAddr`
-and all your Device commands are queried using `vkGetDeviceProcAddr`.
+dispatch table so that all your Instance functions are queried using `vkGetInstanceProcAddr`
+and all your Device functions are queried using `vkGetDeviceProcAddr`.
 
 *Why should you do this?*
 
-The answer comes in how the call chain of Instance commands are implemented versus the
-call chain of a Device commands.  Remember, a [Vulkan Instance is a high-level
-construct used to provide Vulkan system-level information](#instance-related-items).
-Because of this, Instance commands need to be broadcasted to every available ICD
-on the system.  The following diagram shows an approximate view of an Instance Chain
+The answer comes in how the call chain of Instance functions are implemented versus the
+call chain of a Device functions.  Remember, a [Vulkan Instance is a high-level
+construct used to provide Vulkan system-level information](#instance-related-objects).
+Because of this, Instance functions need to be broadcasted to every available ICD
+on the system.  The following diagram shows an approximate view of an Instance call chain
 with 3 enabled layers:
 
-![Instance Chain](./images/loader_instance_chain.png)
+![Instance Call Chain](./images/loader_instance_chain.png)
 
-This is also how any command chain looks if you query even a Vulkan Device
-command (core or extension) using `vkGetInstanceProcAddr`.  However, a Device
-command, on the other hand, doesn't need to worry about the broadcast
-since it knows specifically which ICD and which Physical Device it is associated with.
+This is also how a Vulkan Device function call chain looks if you query it
+using `vkGetInstanceProcAddr`.  On the otherhand, a Device
+function doesn't need to worry about the broadcast becuase it knows specifically
+which associated ICD and which associated Physical Device the call should terminate at.
 Because of this, the loader doesn't need to get involved between any enabled
-layers and the ICD.  Thus, if you used a loader-exported Vulkan Device command, the call
+layers and the ICD.  Thus, if you used a loader-exported Vulkan Device function, the call
 chain in the same scenario as above would look like:
 
-![Loader Device Chain](./images/loader_device_chain_loader.png)
+![Loader Device Call Chain](./images/loader_device_chain_loader.png)
 
 An even better solution would be for an application to perform a `vkGetDeviceProcAddr`
 call on all Device functions.  This further optimizes the call chain by removing the
 loader all-together under most scenarios:
 
-![Application Device Chain](./images/loader_device_chain_app.png)
+![Application Device Call Chain](./images/loader_device_chain_app.png)
 
 Also, notice if no layers are enabled, your application function pointer would point
 **directly to the ICD**.  If called enough, those fewer calls can add up to performance savings.
 
-**NOTE:** There are some Device commands which still require the loader to intercept
+**NOTE:** There are some Device functions which still require the loader to intercept
 them with a *trampoline* and *terminator*. There are very few of these, but they are
-typically commands which the loader wraps with its own data.  In those cases, even the
+typically functions which the loader wraps with its own data.  In those cases, even the
 Device call chain will continue to look like the Instance call chain.  One example of a Device
-command requiring a *terminator* is `vkCreateSwapchainKHR`.  For that function,
+function requiring a *terminator* is `vkCreateSwapchainKHR`.  For that function,
 the loader needs to potentially convert the KHR_surface object into an ICD-specific
-KHR_surface object prior to passing down the rest of the command information to the ICD.
+KHR_surface object prior to passing down the rest of the function's information to the ICD.
 
 Remember:
  * `vkGetInstanceProcAddr` can be used to query
@@ -358,16 +358,19 @@ also be linked to by applications (e.g. libvulkan.so.1).
 #### Application Layer Usage
 
 Applications desiring Vulkan functionality beyond what the core API offers may
-use various layers or extensions. A layer cannot introduce new Vulkan API
-entry-points to an application not exposed in Vulkan.h, but may offer extensions
-that do. A common use of layers is for API validation which can be enabled by
+use various layers or extensions. A layer cannot introduce new Vulkan core API
+entry-points to an application that are not exposed in Vulkan.h.  However, layers
+may offer extensions that introduce new Vulkan commands that can be queried
+through the extension interface.
+
+A common use of layers is for API validation which can be enabled by
 loading the layer during application development, but not loading the layer
 for application release. This eliminates the overhead of validating the
 application's usage of the API, something that wasn't available on some previous
 graphics APIs.
 
-To find out what layers are available to your application, use the
-`vkEnumerateInstanceLayerProperties` command.  This will report all layers
+To find out what layers are available to your application, use
+`vkEnumerateInstanceLayerProperties`.  This will report all layers
 that have been discovered by the loader.  The loader looks in various locations
 to find layers on the system.  For more information see the
 [Layer discovery](#layer-discovery) section below.
@@ -375,12 +378,13 @@ to find layers on the system.  For more information see the
 To enable a layer, or layers, simply pass the name of the layers you wish to
 enable in the `ppEnabledLayerNames` field of the `VkInstanceCreateInfo` during
 a call to `vkCreateInstance`.  Once done, the layers you have enabled will be
-active for all Vulkan commands using the created `VkInstance`, and any of
+active for all Vulkan functions using the created `VkInstance`, and any of
 its child objects.
 
 **NOTE:** Layer ordering is important in several cases since some layers
 interact with each other.  Be careful when enabling layers as this may be
-the case.
+the case.  See the [Overall Layer Ordering](#overall-layer-ordering) section
+for more information.
 
 The following code section shows how you would go about enabling the
 VK_LAYER_LUNARG_standard_validation layer.
@@ -414,7 +418,8 @@ At `vkCreateInstance` and `vkCreateDevice`, the loader constructs call chains th
 include the application specified (enabled) layers.  Order is important in the
 `ppEnabledLayerNames` array; array element 0 is the topmost (closest to the
 application) layer inserted in the chain and the last array element is closest
-to the driver.
+to the driver.  See the [Overall Layer Ordering](#overall-layer-ordering) section
+for more information on layer ordering.
 
 **NOTE:** *Device Layers Are Now Deprecated*
 > `vkCreateDevice` originally was able to select layers in a similar manner to
@@ -426,7 +431,7 @@ to the driver.
 > * `VkDeviceCreateInfo` fields:
 >  * `ppEnabledLayerNames`
 >  * `enabledLayerCount`
-> * `vkEnumerateDeviceLayerProperties`
+> * The `vkEnumerateDeviceLayerProperties` function
 
 
 ##### Implicit vs Explicit Layers
@@ -450,7 +455,7 @@ environment variable so the users can deterministicly enable the functionality.
 On Desktop platforms (Windows and Linux), these enable/disable settings are
 defined in the layer's JSON file.
 
-Discovery of properly installed implicit and explicit layers is described later in
+Discovery of system-installed implicit and explicit layers is described later in
 the [Layer Discovery Section](#layer-discovery).  For now, simply know that what
 distinguishes a layer as implicit or explicit is dependent on the Operating system,
 as shown in the table below.
@@ -465,9 +470,9 @@ as shown in the table below.
 ##### Forcing Layer Source Folders
 
 Developers may need to use special, pre-production layers, without modifying the
-properly-installed layers. You can direct the loader to look for layers in a specific
+system-installed layers. You can direct the loader to look for layers in a specific
 folder by defining the "VK\_LAYER\_PATH" environment variable.  This will override the
-mechanism used for finding properly-installed layers. Because layers of interest may
+mechanism used for finding system-installed layers. Because layers of interest may
 exist in several disinct folders on on a system, this environment variable can containis
 several paths seperated by the operating specific path separator.  On Windows, each separate
 folder should be separated in the list using a semi-colon.  On Linux, each folder name
@@ -487,6 +492,8 @@ not specified (enabled) by the application at `vkCreateInstance`.
 list of layer names to enable. Order is relevant with the first layer in the
 list being the top-most layer (closest to the application) and the last
 layer in the list being the bottom-most layer (closest to the driver).
+See the [Overall Layer Ordering](#overall-layer-ordering) section
+for more information.
 
 Application specified layers and user specified layers (via environment
 variables) are aggregated and duplicates removed by the loader when enabling
@@ -508,6 +515,16 @@ as follows:
 
 ![Loader Layer Ordering](./images/loader_layer_order.png)
 
+Ordering may also be important internal to the list of Explicit Layers.
+Some layers may be dependent on other behavior being implemented before
+or after the loader calls it.  For example: the VK_LAYER_LUNARG_core_validation
+layer expects the VK_LAYER_LUNARG_parameter_validation to be called first.
+This is because the VK_LAYER_LUNARG_parameter_validation will filter out any
+invalid `NULL` pointer calls prior to the rest of the validation checking
+done by VK_LAYER_LUNARG_core_validation.  If not done properly, you may see
+crashes in the VK_LAYER_LUNARG_core_validation layer that would otherwise be
+avoided.
+
 
 #### Application Usage of Extensions
 
@@ -528,7 +545,7 @@ there are really two types of extensions:
  * Device Extensions
 
 An Instance extension is an extension which modifies existing behavior or
-implements new behavior on Instance level objects, like a `VkInstance` or
+implements new behavior on instance-level objects, like a `VkInstance` or
 a `VkPhysicalDevice`.  A Device extension is an extension which does the same,
 but for any `VkDevice` object, or any dispatchable object that is a child of a
 `VkDevice` (`VkQueue` and `VkCommandBuffer` are examples of these).
@@ -563,8 +580,8 @@ support for the same extension) are eliminated by the loader. For duplicates, th
 ICD version is reported and the layer version is culled.
 
 Also, Extensions *must be enabled* (in `vkCreateInstance` or
-`vkCreateDevice`) before the commands associated with the extensions can be used.  If
-you get an Extension command using either `vkGetInstanceProcAddr` or `vkGetDeviceProcAddr`,
+`vkCreateDevice`) before the functions associated with the extensions can be used.  If
+you get an Extension function using either `vkGetInstanceProcAddr` or `vkGetDeviceProcAddr`,
 but fail to enable it, you could experience undefined behavior.  This should actually
 be flagged if you run with Validation layers enabled.
 
@@ -592,8 +609,9 @@ In addition, each of the following OS targets for the loader support target-spec
 | Linux (Wayland) | VK_KHR_wayland_surface |
 | Linux (Mir)  | VK_KHR_mir_surface |
 
-**NOTE:** Wayland and Mir targets are not fully supported at this time and should be considered
-alpha quality.
+**NOTE:** Wayland and Mir targets are not fully supported at this time.  Wayland support is
+present, but should be considered Beta quality.  Mir support is not completely implemented at
+this time.
 
 It is important to understand that while the loader may support the various entry-points
 for these extensions, there is a hand-shake required to actually use them:
@@ -681,8 +699,7 @@ layers that it can load at a user's request.  The process of finding the
 available layers on a system is known as Layer Discovery.  During discovery,
 the loader determines what layers are available, the layer name, the layer
 version, and any extensions supported by the layer.  This information is
-provided back to an application through the `vkEnumerateInstanceLayerProperties`
-command.
+provided back to an application through `vkEnumerateInstanceLayerProperties`.
 
 The group of layers available to the loader is known as a layer library.  This
 section defines an extensible interface to discover what layers are contained in
@@ -693,8 +710,8 @@ follow, especially with regards to interacting with the loader and other layers.
 
 ##### Layer Manifest File Usage
 
-On Windows and Linux systems, JSON formated text files are used to store
-layer information.  In order to find properly-installed layers, the Vulkan loader
+On Windows and Linux systems, JSON formated manifest files are used to store
+layer information.  In order to find system-installed layers, the Vulkan loader
 will read the JSON files to identify the names and attributes of layers and their
 extensions. The use of manifest files allows the loader to avoid loading any
 shared library files when the application does not query nor request any
@@ -719,7 +736,7 @@ any layers in that location.
 
 ##### Windows Layer Discovery
 
-In order to find properly-installed layers, the Vulkan loader will scan the
+In order to find system-installed layers, the Vulkan loader will scan the
 values in the following Windows registry keys:
 
 ```
@@ -857,9 +874,9 @@ Here's a snippet with the changes required to support multiple layers per manife
 | "description" | A high-level description of the layer and it's intended use. | vkEnumerateInstanceLayerProperties |
 | "functions" | **OPTIONAL:** This section can be used to identify a different function name for the loader to use in place of standard layer interface functions. The "functions" node is required if the layer is using alternative names for `vkGetInstanceProcAddr` or `vkGetDeviceProcAddr`. | vkGet*ProcAddr |
 | "instance\_extensions" | **OPTIONAL:** Contains the list of instance extension names supported by this layer. One "instance\_extensions" node with an array of one or more elements is required if any instance extensions are supported by a layer, otherwise the node is optional. Each element of the array must have the nodes "name" and "spec_version" which correspond to `VkExtensionProperties` "extensionName" and "specVersion" respectively. | vkEnumerateInstanceExtensionProperties |
-| "device\_extensions" | **OPTIONAL:** Contains the list of device extension names supported by this layer. One "device_\extensions" node with an array of one or more elements is required if any device extensions are supported by a layer, otherwise the node is optional. Each element of the array must have the nodes "name" and "spec_version" which correspond to `VkExtensionProperties` "extensionName" and "specVersion" respectively. Additionally, each element of the array of device extensions must have the node "entrypoints" if the device extension adds Vulkan API commands, otherwise this node is not required. The "entrypoint" node is an array of the names of all entrypoints added by the supported extension. | vkEnumerateDeviceExtensionProperties |
+| "device\_extensions" | **OPTIONAL:** Contains the list of device extension names supported by this layer. One "device_\extensions" node with an array of one or more elements is required if any device extensions are supported by a layer, otherwise the node is optional. Each element of the array must have the nodes "name" and "spec_version" which correspond to `VkExtensionProperties` "extensionName" and "specVersion" respectively. Additionally, each element of the array of device extensions must have the node "entrypoints" if the device extension adds Vulkan API functions, otherwise this node is not required. The "entrypoint" node is an array of the names of all entrypoints added by the supported extension. | vkEnumerateDeviceExtensionProperties |
 | "enable\_environment" | **Implicit Layers Only** - **OPTIONAL:** Indicates an environment variable used to enable the Implicit Layer (w/ value of 1).  This environment variable (which should vary with each "version" of the layer) must be set to the given value or else the implicit layer is not loaded. This is for application environments (e.g. Steam) which want to enable a layer(s) only for applications that they launch, and allows for applications run outside of an application environment to not get that implicit layer(s).| N/A |
-| "disable\_environment" | **Implicit Layers Only** - **REQUIRED:**Indicates an environment variable used to disable the Implicit Layer (w/ value of 1). In rare cases of an application not working with an implicit layer, the application can set this environment variable (before calling Vulkan commands) in order to "blacklist" the layer. This environment variable (which should vary with each "version" of the layer) must be set (not particularly to any value). If both the "enable_environment" and "disable_environment" variables are set, the implicit layer is disabled. | N/A |
+| "disable\_environment" | **Implicit Layers Only** - **REQUIRED:**Indicates an environment variable used to disable the Implicit Layer (w/ value of 1). In rare cases of an application not working with an implicit layer, the application can set this environment variable (before calling Vulkan functions) in order to "blacklist" the layer. This environment variable (which should vary with each "version" of the layer) must be set (not particularly to any value). If both the "enable_environment" and "disable_environment" variables are set, the implicit layer is disabled. | N/A |
 
 
 ##### Layer Manifest File Version History
@@ -906,20 +923,24 @@ You can read an overview of dispatch tables and call chains above in the
 [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section.
 
 What's important to note here is that a layer can intercept Vulkan
-instance commands, device commands or both. For a layer to intercept instance
-commands, it must participate in the instance call chain.  For a layer to
-intercept device commands, it must participate in the device chain.
+instance functions, device functions or both. For a layer to intercept instance
+functions, it must participate in the instance call chain.  For a layer to
+intercept device functions, it must participate in the device call chain.
 
-Remember, a layer does not need to intercept all instance or device commands, instead, it
-can choose to intercept only a subset of those commands.
+Remember, a layer does not need to intercept all instance or device functions,
+instead, it can choose to intercept only a subset of those functions.
 
-Normally, when a layer intercepts a given Vulkan command, it will call down the
-instance or device chain as needed. The loader and all layer libraries that
+Normally, when a layer intercepts a given Vulkan function, it will call down the
+instance or device call chain as needed. The loader and all layer libraries that
 participate in a call chain cooperate to ensure the correct sequencing of calls
 from one entity to the next. This group effort for call chain sequencing is
 hereinafter referred to as **distributed dispatch**.
 
-In distributed dispatch each layer is responsible for properly calling the next entity in the call chain. This means that a dispatch mechanism is required for all Vulkan commands that a layer intercepts. If a Vulkan command is not intercepted by a layer, or if a layer chooses to terminate the command by not calling down the chain, then no dispatch is needed for that particular command.
+In distributed dispatch each layer is responsible for properly calling the next
+entity in the call chain. This means that a dispatch mechanism is required for all
+Vulkan functions that a layer intercepts. If a Vulkan function is not intercepted
+by a layer, or if a layer chooses to terminate the function by not calling down
+the chain, then no dispatch is needed for that particular function.
 
 For example, if the enabled layers intercepted only certain instance functions,
 the call chain would look as follows:
@@ -930,35 +951,35 @@ call chain could look this way:
 ![Device Function Chain](./images/function_device_chain.png)
 
 The loader is responsible for dispatching all core and instance extension Vulkan
-commands to the first entity in the chain.
+functions to the first entity in the call chain.
 
 
 ##### Layer Intercept Requirements
 
- * Layers intercept a Vulkan command by defining a C/C++ function with signature
-**identical** to the Vulkan API for that command.
+ * Layers intercept a Vulkan function by defining a C/C++ function with signature
+**identical** to the Vulkan API for that function.
  * A layer **must intercept at least** `vkGetInstanceProcAddr` and
 `vkCreateInstance`.
-  * Additionally, a layer would also intercept `vkGetDeviceProcAddr` and `vkCreateDevice` to participate in the device chain.
- * For any Vulkan command a layer intercepts which has a non-void return value,
+  * Additionally, a layer would also intercept `vkGetDeviceProcAddr` and `vkCreateDevice` to participate in the device call chain.
+ * For any Vulkan function a layer intercepts which has a non-void return value,
 **an appropriate value must be returned** by the layer intercept function.
- * Most commands a layer intercepts **should call down the chain** to the corresponding
-Vulkan command in the next entity.
+ * Most functions a layer intercepts **should call down the chain** to the corresponding
+Vulkan function in the next entity.
   * The common behavior for a layer is to intercept a call, perform some behavior, then pass it down to the next entity.
     * If you don't pass the information down, undefined behavior may occur.
-    * This is because the command will not be received by layers further down the chain, or any ICDs.
-  * Two common commands that may not call down the chain are:
+    * This is because the function will not be received by layers further down the chain, or any ICDs.
+  * Two common functions that may not call down the chain are:
     * `vkGetInstanceProcAddr`
     * `vkGetDeviceProcAddr`
-    * These functions only call down the chain for Vulkan commands that they do not intercept.
- * Layer intercept functions **may insert extra calls** to Vulkan commands in
+    * These functions only call down the chain for Vulkan functions that they do not intercept.
+ * Layer intercept functions **may insert extra calls** to Vulkan functions in
 addition to the intercept.
   * For example, a layer intercepting `vkQueueSubmit` may want to add a call to `vkQueueWaitIdle`
 after calling down the chain for `vkQueueSubmit`.
   * This would result in two calls down the chain: First a call down the `vkQueueSubmit` chain, followed by a call down the `vkQueueWaitIdle` chain.
   * Any additional calls inserted by a layer must be on the same chain
-    * If the command is a device command, only other device commands should be added.
-    * Likewise, if the command is an instance command, only other instance commands should be added.
+    * If the function is a device function, only other device functions should be added.
+    * Likewise, if the function is an instance function, only other instance functions should be added.
 
 
 ##### Distributed Dispatching Requirements
@@ -991,10 +1012,10 @@ follow some conventions and rules.
 
 A layer is always chained with other layers.  It must not make invalid calls
 to, or rely on undefined behaviors of, its lower layers.  When it changes the
-behavior of a command, it must make sure its upper layers do not make invalid
+behavior of a function, it must make sure its upper layers do not make invalid
 calls to or rely on undefined behaviors of its lower layers because of the
 changed behavior.  For example, when a layer intercepts an object creation
-command to wrap the objects created by its lower layers, it must make sure its
+function to wrap the objects created by its lower layers, it must make sure its
 lower layers never see the wrapping objects, directly from itself or
 indirectly from its upper layers.
 
@@ -1015,16 +1036,15 @@ layer itself.
   - In other cases, it should normally chain to other layers.
  - `vkCreateInstance` **must not** generate an error for unrecognized layer names and extension names.
   - It may assume the layer names and extension names have been validated.
- - `vkGetInstanceProcAddr` intercepts a Vulkan command by returning a local entry point
-  - Otherwise it returns the value obtained by calling down the instance chain.
-  - These commands must be intercepted:
-   - `vkGetInstanceProcAddr`
-   - `vkCreateInstance`
+ - `vkGetInstanceProcAddr` intercepts a Vulkan function by returning a local entry point
+  - Otherwise it returns the value obtained by calling down the instance call chain.
+ - `vkGetDeviceProcAddr` intercepts a Vulkan function by returning a local entry point
+  - Otherwise it returns the value obtained by calling down the device call chain.
+  - These additional functions must be intercepted if the layer implements device-level call chaining:
+   - `vkGetDeviceProcAddr`
    - `vkCreateDevice`(only required for any device-level chaining)
      - **NOTE:** older layer libraries may expect that `vkGetInstanceProcAddr` ignore `instance` when `pName` is `vkCreateDevice`.
- - `vkGetDeviceProcAddr` intercepts a Vulkan command by returning a local entry point
-  - Otherwise it returns the value obtained by calling down the device chain.
- - The specification **requires** `NULL` to be returned from `vkGetInstanceProcAddr` and `vkGetDeviceProcAddr` for disabled commands.
+ - The specification **requires** `NULL` to be returned from `vkGetInstanceProcAddr` and `vkGetDeviceProcAddr` for disabled functions.
   - A layer may return `NULL` itself or rely on the following layers to do so.
 
 
@@ -1067,7 +1087,7 @@ the VkInstanceCreateInfo/VkDeviceCreateInfo structure.
   - Advanced the linked list to the next node: pLayerInfo = pLayerInfo->pNext.
   - Call down the chain either `vkCreateDevice` or `vkCreateInstance`
   - Initialize your layer dispatch table by calling the next entity's
-Get*ProcAddr function once for each Vulkan command needed in your dispatch
+Get*ProcAddr function once for each Vulkan function needed in your dispatch
 table
 
 #### Example Code for CreateInstance
@@ -1167,15 +1187,16 @@ objects.  Two common methods to do this are hash maps and object wrapping.
 ###### Wrapping
 
 The loader supports layers wrapping any Vulkan object, including dispatchable
-objects.  For commands that return object handles, each layer does not touch
-the value passed along the chain.  However, when the value is returned from a
+objects.  For functions that return object handles, each layer does not touch
+the value passed down the call chain.  This is because lower items may need to use
+the original value.  However, when the value is returned from a
 lower-level layer (possibly the ICD), the layer saves the handle  and returns
 its own handle to the layer above it (possibly the application).  When a layer
-receives a Vulkan command using something that it previously returned a handle
+receives a Vulkan function using something that it previously returned a handle
 for, the layer is required to unwrap the handle and pass along the saved handle
 to the layer below it.  This means that the layer **must intercept every Vulkan
-command which uses the object in question**, and wrap or unwrap the object, as
-appropriate.  This includes adding support for all extensions with commands
+function which uses the object in question**, and wrap or unwrap the object, as
+appropriate.  This includes adding support for all extensions with functions
 using any object the layer wraps.
 
 Layers above the object wrapping layer will see the wrapped object. Layers
@@ -1204,10 +1225,10 @@ new dispatchable objects (below).
 Layers are generally discouraged from wrapping objects, because of the
 potential for incompatibilities with new extensions.  For example, let's say
 that a layer wraps `VkImage` objects, and properly wraps and unwraps `VkImage`
-object handles for all core commands.  If a new extension is created which has
-commands that take `VkImage` objects as parameters, and if the layer does not
-support those new commands, an application that uses both the layer and the new
-extension will have undefined behavior when those new commands are called (e.g.
+object handles for all core functions.  If a new extension is created which has
+functions that take `VkImage` objects as parameters, and if the layer does not
+support those new functions, an application that uses both the layer and the new
+extension will have undefined behavior when those new functions are called (e.g.
 the application may crash).  This is becaues the lower-level layers and ICD
 won't receive the handle that they generated.  Instead, they will receive a
 handle that is only known by the layer that is wrapping the object.
@@ -1245,7 +1266,7 @@ loader *trampoline* will not do so.  Common cases where a layer (or ICD) may cre
 dispatchable object without loader *trampoline* code is as follows:
 - layers that wrap dispatchable objects
 - layers which add extensions that create dispatchable objects
-- layers which insert extra Vulkan commands in the stream of commands they
+- layers which insert extra Vulkan funnctions in the stream of functions they
 intercept from the application
 - ICDs which add extensions that create dispatchable objects
 
@@ -1288,7 +1309,7 @@ in the previous sections.  The following sections define previous versions.
 ##### Layer Library API Version 0
 
 A layer library supporting interface version 0 must define and export these
-introspection functions, unrelated to any Vulkan command despite the names,
+introspection functions, unrelated to any Vulkan function despite the names,
 signatures, and other similarities:
 
  - `vkEnumerateInstanceLayerProperties` enumerates all layers in a layer library.
@@ -1306,7 +1327,7 @@ signatures, and other similarities:
   - "physicalDevice" is always `VK_NULL_HANDLE`.
   - This function never fails.
   - If a layer is not enumerated by this function, it will not participate in
-   device command interception.
+   device function interception.
  - `vkEnumerateDeviceExtensionProperties` enumerates device extensions of
    layers in a layer library.
   - "physicalDevice" is always `VK_NULL_HANDLE`.
@@ -1326,8 +1347,8 @@ It must also define and export these functions once for each layer in the librar
    alternatively be named `vkGetDeviceProcAddr`.
 
 All layers contained within a library must support `vk_layer.h`.  They do not need to
-implement commands that they do not intercept.  They are recommended not to export
-any commands.
+implement functions that they do not intercept.  They are recommended not to export
+any functions.
 
 
 <br/>
@@ -1373,8 +1394,8 @@ details are listed below.
 
 #### ICD Manifest File Usage
 
-As with layers, on Windows and Linux systems, JSON formated text files are used
-to store ICD information.  In order to find properly installed drivers, the
+As with layers, on Windows and Linux systems, JSON formated manifest files are used
+to store ICD information.  In order to find system-installed drivers, the
 Vulkan loader will read the JSON files to identify the names and attributes of
 each driver.  One thing you will notice is that ICD Manifest files are much
 simpler than the corresponding layer Manifest files.
@@ -1463,10 +1484,10 @@ Independent Hardware Vendor (IHV) pre-production ICDs. In some cases, a
 pre-production ICD may be in an installable package. In other cases, a
 pre-production ICD may simply be a shared library in the developer's build tree.
 In this latter case, we want to allow developers to point to such an ICD without
-modifying the properly-installed ICD(s) on their system.
+modifying the system-installed ICD(s) on their system.
 
 This need is met with the use of the "VK\_ICD\_FILENAMES" environment variable,
-which will override the mechanism used for finding properly-installed ICDs. In
+which will override the mechanism used for finding system-installed ICDs. In
 other words, only the ICDs listed in "VK\_ICD\_FILENAMES" will be used.
 
 The "VK\_ICD\_FILENAMES" environment variable is a list of ICD
@@ -1547,20 +1568,19 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(
                                                const char* pName);
 ```
 
-This function has very similar semantics to the Vulkan command
-`vkGetInstanceProcAddr`.
-`vk_icdGetInstanceProcAddr` returns valid function pointers for all the global level
-and instance level Vulkan commands, and also for `vkGetDeviceProcAddr`.
-Global level commands are those
+This function has very similar semantics to `vkGetInstanceProcAddr`.
+`vk_icdGetInstanceProcAddr` returns valid function pointers for all the global-level
+and instance-level Vulkan functions, and also for `vkGetDeviceProcAddr`.
+Global-level functions are those
 which contain no dispatchable object as the first parameter, such as
 `vkCreateInstance` and `vkEnumerateInstanceExtensionProperties`. The ICD must
-support querying global level entry points by calling
-`vk_icdGetInstanceProcAddr` with a NULL `VkInstance` parameter. Instance level
-commands are those that have either `VkInstance`, or `VkPhysicalDevice` as the
+support querying global-level entry points by calling
+`vk_icdGetInstanceProcAddr` with a NULL `VkInstance` parameter. Instance-level
+functions are those that have either `VkInstance`, or `VkPhysicalDevice` as the
 first parameter dispatchable object. Both core entry points and any instance
 extension entry points the ICD supports should be available via
 `vk_icdGetInstanceProcAddr`. Future Vulkan instance extensions may define and
-use new instance level dispatchable objects other than `VkInstance` and
+use new instance-level dispatchable objects other than `VkInstance` and
 `VkPhysicalDevice`, in which case extension entry points using these newly
 defined dispatchable objects must be queryable via `vk_icdGetInstanceProcAddr`.
 
@@ -1647,7 +1667,7 @@ If the loader handles the management of the `VkSurfaceKHR` objects:
 The ICD may choose to handle `VkSurfaceKHR` object creation instead.  If an ICD
 desires to handle creating and destroying it must do the following:
  1. Support version 3 or newer of the loader/ICD interface.
- 2. Export and handle all commands that take in a `VkSurfaceKHR` object, including:
+ 2. Export and handle all functions that take in a `VkSurfaceKHR` object, including:
      * `vkCreateXXXSurfaceKHR`
      * `vkGetPhysicalDeviceSurfaceSupportKHR`
      * `vkGetPhysicalDeviceSurfaceCapabilitiesKHR`
@@ -1673,10 +1693,10 @@ NULL.  Then the loader destroys the container object before returning.
 
 ### Loader and ICD Interface Negotiation
 
-Generally, for commands issued by an application, the loader can be
+Generally, for functions issued by an application, the loader can be
 viewed as a pass through. That is, the loader generally doesn't modify the
-commands or their parameters, but simply calls the ICDs entry point for that
-command. There are specific additional interface requirements an ICD needs to comply with that
+functions or their parameters, but simply calls the ICDs entry point for that
+function. There are specific additional interface requirements an ICD needs to comply with that
 are not part of any requirements from the Vulkan specification.
 These addtional requirements are versioned to allow flexibility in the future.
 
@@ -1697,7 +1717,7 @@ between the loader and ICDs.
            uint32_t* pSupportedVersion);
 ```
 
-This command allows the loader and ICD to agree on an interface version to use.
+This function allows the loader and ICD to agree on an interface version to use.
 The "pSupportedVersion" parameter is both an input and output parameter.
 "pSupportedVersion" is filled in by the loader with the desired latest interface
 version supported by the loader (typically the latest). The ICD receives this
@@ -1729,7 +1749,7 @@ application will not see the ICDs `vkPhysicalDevice` during enumeration.
 ###### Interfacing With Legacy ICDs or Loader
 
 If a loader sees that an ICD does not export the
-`vk_icdNegotiateLoaderICDInterfaceVersion` command, then the loader assumes the
+`vk_icdNegotiateLoaderICDInterfaceVersion` function, then the loader assumes the
 corresponding ICD only supports either interface version 0 or 1.
 
 From the other side of the interface, if an ICD sees a call to
@@ -1746,7 +1766,7 @@ The primary change that occurred in version 3 of the loader/ICD interface was to
 handle creation/destruction of their own KHR_surfaces.  Up until this point, the loader created
 a surface object that was used by all ICDs.  However, some ICDs may want to provide their
 own surface handles.  If an ICD chooses to enable this support, it must export support for
-version 3 of the loader/ICD interface, as well as any Vulkan command that uses a KHR_surface handle,
+version 3 of the loader/ICD interface, as well as any Vulkan function that uses a KHR_surface handle,
 such as:
 - `vkCreateXXXSurfaceKHR` (where XXX is the platform specific identifier [i.e. `vkCreateWin32SurfaceKHR` for Windows])
 - `vkDestroySurfaceKHR`
@@ -1757,7 +1777,7 @@ such as:
 - `vkGetPhysicalDeviceSurfacePresentModesKHR`
 
 An ICD can still choose to not take advantage of this functionality by simply not exposing the
-above the `vkCreateXXXSurfaceKHR` and `vkDestroySurfaceKHR` commands.
+above the `vkCreateXXXSurfaceKHR` and `vkDestroySurfaceKHR` functions.
 
 
 ##### Loader Version 2 Interface Requirements
@@ -1816,19 +1836,19 @@ by the Windows and Linux loaders.
 |----------------|--------------------|
 | Android Loader | The loader designed to work primarily for the Android OS.  This is generated from a different code-base than the desktop loader.  But, in all important aspects, should be functionally equivalent. |
 | Desktop Loader | The loader designed to work on both Windows and Linux.  This is generated from a different [code-base](#https://github.com/KhronosGroup/Vulkan-LoaderAndValidationLayers) than the Android loader.  But in all important aspects, should be functionally equivalent. |
-| Core Command | A command that is already part of the Vulkan core specification and not an extension.  For example, vkCreateDevice(). |
-| Device Call Chain | The chain of commands followed for device commands.  This chain for a device command is usually as follows: first the application calls into a loader trampoline, then the loader trampoline calls enabled layers, the final layer calls into the ICD specific to the device.  See the [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section for more information |
-| Device Command | A Device command is any Vulkan command which takes a `VkDevice`, `VkQueue`, `VkCommandBuffer`, or any child of these, as its first parameter.  Some Vulkan Device commands are: `vkQueueSubmit`, `vkBeginCommandBuffer`, `vkCreateEvent`.  See the [Instance Versus Device](#instance-versus-device) section for more information. |
-| Discovery | The process of the loader searching for ICD and Layer files to setup the internal list of Vulkan items available.  On Windows/Linux, the discovery process typically focuses on searching for Manifest files.  While on Android, the process focuses on searching for library files. |
+| Core Function | A function that is already part of the Vulkan core specification and not an extension.  For example, vkCreateDevice(). |
+| Device Call Chain | The call chain of functions followed for device functions.  This call chain for a device function is usually as follows: first the application calls into a loader trampoline, then the loader trampoline calls enabled layers, the final layer calls into the ICD specific to the device.  See the [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section for more information |
+| Device Function | A Device function is any Vulkan function which takes a `VkDevice`, `VkQueue`, `VkCommandBuffer`, or any child of these, as its first parameter.  Some Vulkan Device functions are: `vkQueueSubmit`, `vkBeginCommandBuffer`, `vkCreateEvent`.  See the [Instance Versus Device](#instance-versus-device) section for more information. |
+| Discovery | The process of the loader searching for ICD and Layer files to setup the internal list of Vulkan objects available.  On Windows/Linux, the discovery process typically focuses on searching for Manifest files.  While on Android, the process focuses on searching for library files. |
 | Dispatch Table | An array of function pointers (including core and possibly extension functions) used to step to the next entity in a call chain.  The entity could be the loader, a layer or an ICD.  See [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) for more information.  |
 | Extension | A concept of Vulkan used to expand the core Vulkan functionality.  Extensions may be IHV-specific, platform-specific, or more broadly available.  You should always query if an extension exists, and enable it during `vkCreateInstance` (if it is an instance extension) or during `vkCreateDevice` (if it is a device extension). |
 | ICD | Acronym for Installable Client Driver.  These are drivers that are provided by IHVs to interact with the hardware they provide.  See [Installable Client Drivers](#installable-client-drivers) section for more information.
 | IHV | Acronym for an Independent Hardware Vendor.  Typically the company that built the underlying hardware technology you are trying to use.  A typical examples for a Graphics IHV are: AMD, ARM, Imagination, Intel, Nvidia, Qualcomm, etc. |
-| Instance Call Chain | The chain of commands followed for instance commands.  This chain for an instance command is usually as follows: first the application calls into a loader trampoline, then the loader trampoline calls enabled layers, the final layer calls a loader terminator, and the loader terminator calls all available ICDs.  See the [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section for more information |
-| Instance Command | An Instance command is any Vulkan command which takes as its first parameter either a `VkInstance` or a `VkPhysicalDevice` or nothing at all.  Some Vulkan Instance commands are: `vkEnumerateInstanceExtensionProperties`, `vkEnumeratePhysicalDevices`, `vkCreateInstance`, `vkDestroyInstance`.  See the [Instance Versus Device](#instance-versus-device) section for more information. |
-| Layer | Layers are optional components that augment the Vulkan system.  They can intercept, evaluate, and modify existing Vulkan commands on their way from the application down to the hardware.  See the [Layers](#layers) section for more information. |
+| Instance Call Chain | The call chain of functions followed for instance functions.  This call chain for an instance function is usually as follows: first the application calls into a loader trampoline, then the loader trampoline calls enabled layers, the final layer calls a loader terminator, and the loader terminator calls all available ICDs.  See the [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) section for more information |
+| Instance Function | An Instance function is any Vulkan function which takes as its first parameter either a `VkInstance` or a `VkPhysicalDevice` or nothing at all.  Some Vulkan Instance functions are: `vkEnumerateInstanceExtensionProperties`, `vkEnumeratePhysicalDevices`, `vkCreateInstance`, `vkDestroyInstance`.  See the [Instance Versus Device](#instance-versus-device) section for more information. |
+| Layer | Layers are optional components that augment the Vulkan system.  They can intercept, evaluate, and modify existing Vulkan functions on their way from the application down to the hardware.  See the [Layers](#layers) section for more information. |
 | Loader | The middle-ware program which acts as the mediator between Vulkan applications, Vulkan layers and Vulkan drivers.  See [The Loader](#the loader) section for more information. |
 | Manifest Files | Data files in JSON format used by the desktop loader.  These files contain specific information for either a [Layer](#layer-manifest-file-format) or an [ICD](#icd-manifest-file-format).
-| Terminator Function | The last function in the instance call chain above the ICDs and owned by the loader.  This function is required in the instance chain because all instance functionality must be communicated to all ICDs capable of receiving the call.  See [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) for more information. |
-| Trampoline Function | The first function in an instance or device call chain owned by the loader which handles the setup and proper chain walk using the appropriate dispatch table.  On device commands (in the device call chain) this function can actually be skipped.  See [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) for more information. |
+| Terminator Function | The last function in the instance call chain above the ICDs and owned by the loader.  This function is required in the instance call chain because all instance functionality must be communicated to all ICDs capable of receiving the call.  See [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) for more information. |
+| Trampoline Function | The first function in an instance or device call chain owned by the loader which handles the setup and proper call chain walk using the appropriate dispatch table.  On device functions (in the device call chain) this function can actually be skipped.  See [Dispatch Tables and Call Chains](#dispatch-tables-and-call-chains) for more information. |
 | WSI Extension | Acronym for Windowing System Integration.  A Vulkan extension targeting a particular Windowing and designed to interface between the Windowing system and Vulkan. See [WSI Extensions](#wsi-extensions) for more information. |

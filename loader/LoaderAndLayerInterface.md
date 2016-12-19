@@ -1006,9 +1006,8 @@ functions.
 
 A layer, when inserted into an otherwise compliant Vulkan implementation, must
 still result in a compliant Vulkan implementation.  The intention is for layers
-to have a well-defined baseline behavior.  Some of the conventions or rules,
-for example, may be considered abuses of the specification.  But, it must
-follow some conventions and rules.
+to have a well-defined baseline behavior.  Therefore, it must follow some
+conventions and rules defined below.
 
 A layer is always chained with other layers.  It must not make invalid calls
 to, or rely on undefined behaviors of, its lower layers.  When it changes the

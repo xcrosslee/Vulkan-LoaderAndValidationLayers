@@ -2898,7 +2898,7 @@ static void list_bits(std::ostream& s, uint32_t bits) {
 }
 
 // Validate draw-time state related to the PSO
-static bool validatePipelineDrawtimeState(layer_data const *my_data, LAST_BOUND_STATE const &state, const GLOBAL_CB_NODE *pCB,
+static bool validatePipelineDrawtimeState(layer_data const *my_data, LAST_BOUND_STATE const &state, GLOBAL_CB_NODE *pCB,
                                           PIPELINE_STATE const *pPipeline) {
     bool skip_call = false;
 
@@ -2917,8 +2917,9 @@ static bool validatePipelineDrawtimeState(layer_data const *my_data, LAST_BOUND_
                     (uint64_t)state.pipeline_state->pipeline, vertex_binding, i, vertex_binding);
             }
         }
+        pCB->vtx_buffer_used = true;
     } else {
-        if (!pCB->currentDrawData.buffers.empty()) {
+        if (!pCB->currentDrawData.buffers.empty() && !pCB->vtx_buffer_used) {
             skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, (VkDebugReportObjectTypeEXT)0,
                                  0, __LINE__, DRAWSTATE_VTX_INDEX_OUT_OF_BOUNDS, "DS",
                                  "Vertex buffers are bound to command buffer (0x%" PRIxLEAST64
@@ -3950,6 +3951,7 @@ static void resetCB(layer_data *dev_data, const VkCommandBuffer cb) {
         pCB->eventToStageMap.clear();
         pCB->drawData.clear();
         pCB->currentDrawData.buffers.clear();
+        pCB->vtx_buffer_used = false;
         pCB->primaryCommandBuffer = VK_NULL_HANDLE;
         // Make sure any secondaryCommandBuffers are removed from globalInFlight
         for (auto secondary_cb : pCB->secondaryCommandBuffers) {

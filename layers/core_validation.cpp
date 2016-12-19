@@ -8024,18 +8024,24 @@ VKAPI_ATTR void VKAPI_CALL CmdDraw(VkCommandBuffer commandBuffer, uint32_t verte
     std::unique_lock<std::mutex> lock(global_lock);
     GLOBAL_CB_NODE *pCB = getCBNode(dev_data, commandBuffer);
     if (pCB) {
+        // TODO : This has validation & state update aspects
         skip_call |= addCmd(dev_data, pCB, CMD_DRAW, "vkCmdDraw()");
-        pCB->drawCount[DRAW]++;
+        pCB->drawCount[DRAW]++; // TODO : This should be in
+        // TODO : Split this into validate/state update. Also at state update time, set bool to note if/when
+        //  vtx buffers are consumed and only flag perf warning if bound vtx buffers have not been consumed
         skip_call |= validate_and_update_draw_state(dev_data, pCB, false, VK_PIPELINE_BIND_POINT_GRAPHICS, "vkCmdDraw");
-        MarkStoreImagesAndBuffersAsWritten(dev_data, pCB);
+        MarkStoreImagesAndBuffersAsWritten(dev_data, pCB); // state update only
+        // TODO : Do we need to do this anymore?
         skip_call |=
             log_msg(dev_data->report_data, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                     reinterpret_cast<uint64_t &>(commandBuffer), __LINE__, DRAWSTATE_NONE, "DS",
                     "vkCmdDraw() call 0x%" PRIx64 ", reporting descriptor set state:", g_drawCount[DRAW]++);
         skip_call |= synchAndPrintDSConfig(dev_data, commandBuffer);
         if (!skip_call) {
+            // TODO : This should go to Post-call
             updateResourceTrackingOnDraw(pCB);
         }
+        // TODO : This is only validation
         skip_call |= outsideRenderPass(dev_data, pCB, "vkCmdDraw()", VALIDATION_ERROR_01365);
     }
     lock.unlock();

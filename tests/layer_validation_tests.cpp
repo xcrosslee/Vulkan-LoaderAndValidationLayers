@@ -335,6 +335,8 @@ class VkLayerTest : public VkRenderFramework {
         instance_layer_names.push_back("VK_LAYER_LUNARG_image");
         instance_layer_names.push_back("VK_LAYER_LUNARG_swapchain");
         instance_layer_names.push_back("VK_LAYER_GOOGLE_unique_objects");
+        // Disable all implicit layers so they don't interfere with our testing.
+        instance_layer_names.push_back("VK_LAYER_LUNARG_disable_all_implicit");
 
         if (m_enableWSI) {
             instance_extension_names.push_back(VK_KHR_SURFACE_EXTENSION_NAME);

@@ -305,10 +305,8 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
         ptr_instance->alloc_callbacks = *pAllocator;
     }
 
-    /*
-     * Look for one or more debug report create info structures
-     * and setup a callback(s) for each one found.
-     */
+    // Look for one or more debug report create info structures
+    // and setup a callback(s) for each one found.
     ptr_instance->num_tmp_callbacks = 0;
     ptr_instance->tmp_dbg_create_infos = NULL;
     ptr_instance->tmp_callbacks = NULL;
@@ -333,14 +331,14 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
         }
     }
 
-    /* Due to implicit layers need to get layer list even if
-     * enabledLayerCount == 0 and VK_INSTANCE_LAYERS is unset. For now always
-     * get layer list via loader_layer_scan(). */
+    // Due to implicit layers, we need to generate a layer list even if
+    // enabledLayerCount == 0 and VK_INSTANCE_LAYERS is unset. For now always
+    // get layer list via loader_layer_scan().
     memset(&ptr_instance->instance_layer_list, 0,
            sizeof(ptr_instance->instance_layer_list));
     loader_layer_scan(ptr_instance, &ptr_instance->instance_layer_list);
 
-    /* validate the app requested layers to be enabled */
+    // Validate the app requested layers to be enabled
     if (pCreateInfo->enabledLayerCount > 0) {
         res =
             loader_validate_layers(ptr_instance, pCreateInfo->enabledLayerCount,
@@ -351,7 +349,7 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
         }
     }
 
-    /* convert any meta layers to the actual layers makes a copy of layer name*/
+    // Convert any meta layers to the actual layers makes a copy of layer name
     VkResult layerErr = loader_expand_layer_names(
         ptr_instance, std_validation_str,
         sizeof(std_validation_names) / sizeof(std_validation_names[0]),
@@ -361,7 +359,7 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
         goto out;
     }
 
-    /* Scan/discover all ICD libraries */
+    // Scan/discover all ICD libraries
     memset(&ptr_instance->icd_tramp_list, 0,
            sizeof(ptr_instance->icd_tramp_list));
     res = loader_icd_scan(ptr_instance, &ptr_instance->icd_tramp_list);
@@ -369,7 +367,7 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
         goto out;
     }
 
-    /* get extensions from all ICD's, merge so no duplicates, then validate */
+    // Get extensions from all ICD's, merge so no duplicates, then validate
     res = loader_get_icd_loader_instance_extensions(
         ptr_instance, &ptr_instance->icd_tramp_list, &ptr_instance->ext_list);
     if (res != VK_SUCCESS) {
@@ -393,7 +391,7 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
     ptr_instance->next = loader.instances;
     loader.instances = ptr_instance;
 
-    /* activate any layers on instance chain */
+    // Activate any layers on instance chain
     res = loader_enable_instance_layers(ptr_instance, &ici,
                                         &ptr_instance->instance_layer_list);
     if (res != VK_SUCCESS) {
@@ -403,7 +401,6 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
     created_instance = (VkInstance)ptr_instance;
     res = loader_create_instance_chain(&ici, pAllocator, ptr_instance,
                                        &created_instance);
-
     if (res == VK_SUCCESS) {
         wsi_create_instance(ptr_instance, &ici);
         debug_report_create_instance(ptr_instance, &ici);
@@ -411,12 +408,10 @@ LOADER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
 
         *pInstance = created_instance;
 
-        /*
-         * Finally have the layers in place and everyone has seen
-         * the CreateInstance command go by. This allows the layer's
-         * GetInstanceProcAddr functions to return valid extension functions
-         * if enabled.
-         */
+        // Finally have the layers in place and everyone has seen
+        // the CreateInstance command go by. This allows the layer's
+        // GetInstanceProcAddr functions to return valid extension functions
+        // if enabled.
         loader_activate_instance_layer_extensions(ptr_instance, *pInstance);
     }
 

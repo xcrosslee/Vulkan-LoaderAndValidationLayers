@@ -83,6 +83,7 @@ loader_platform_thread_mutex loader_lock;
 loader_platform_thread_mutex loader_json_lock;
 
 const char *std_validation_str = "VK_LAYER_LUNARG_standard_validation";
+const char *disable_implicit_string = "VK_LAYER_LUNARG_disable_all_implicit";
 
 // This table contains the loader's instance dispatch table, which contains
 // default functions if no instance layers are activated.  This contains
@@ -426,8 +427,31 @@ VKAPI_ATTR VkResult VKAPI_CALL vkSetDeviceDispatch(VkDevice device,
     return VK_SUCCESS;
 }
 
+
+// Get next file or dirname given a string list
+//
+// \returns
+// A pointer to first char in the next path.
+// The next path (or NULL) in the list is returned in next_path.
+// Note: input string is modified in some cases. PASS IN A COPY!
+static char *loader_get_next_path(char *path) {
+    uint32_t len;
+    char *next;
+    if (path == NULL) {
+        return NULL;
+    }
+    next = strchr(path, PATH_SEPARATOR);
+    if (next == NULL) {
+        len = (uint32_t)strlen(path);
+        next = path + len;
+    } else {
+        *next = '\0';
+        next++;
+    }
+    return next;
+}
+
 #if defined(WIN32)
-static char *loader_get_next_path(char *path);
 /**
 * Find the list of registry files (names within a key) in key "location".
 *
@@ -1011,38 +1035,7 @@ loader_add_to_dev_ext_list(const struct loader_instance *inst,
     return VK_SUCCESS;
 }
 
-/**
- * Search the given search_list for any layers in the props list.
- * Add these to the output layer_list.  Don't add duplicates to the output
- * layer_list.
- */
-static VkResult
-loader_add_layer_names_to_list(const struct loader_instance *inst,
-                               struct loader_layer_list *output_list,
-                               uint32_t name_count, const char *const *names,
-                               const struct loader_layer_list *search_list) {
-    struct loader_layer_properties *layer_prop;
-    VkResult err = VK_SUCCESS;
-
-    for (uint32_t i = 0; i < name_count; i++) {
-        const char *search_target = names[i];
-        layer_prop = loader_get_layer_property(search_target, search_list);
-        if (!layer_prop) {
-            loader_log(inst, VK_DEBUG_REPORT_ERROR_BIT_EXT, 0,
-                       "Unable to find layer %s", search_target);
-            err = VK_ERROR_LAYER_NOT_PRESENT;
-            continue;
-        }
-
-        err = loader_add_to_layer_list(inst, output_list, 1, layer_prop);
-    }
-
-    return err;
-}
-
-/*
- * Manage lists of VkLayerProperties
- */
+// Manage lists of VkLayerProperties
 static bool loader_init_layer_list(const struct loader_instance *inst,
                                    struct loader_layer_list *list) {
     list->capacity = 32 * sizeof(struct loader_layer_properties);
@@ -1068,23 +1061,19 @@ void loader_destroy_layer_list(const struct loader_instance *inst,
     layer_list->capacity = 0;
 }
 
-/*
- * Search the given layer list for a list
- * matching the given VkLayerProperties
- */
+// Search the given layer list for a list matching the given
+// VkLayerProperties
 bool has_vk_layer_property(const VkLayerProperties *vk_layer_prop,
                            const struct loader_layer_list *list) {
     for (uint32_t i = 0; i < list->count; i++) {
-        if (strcmp(vk_layer_prop->layerName, list->list[i].info.layerName) == 0)
+        if (!strcmp(vk_layer_prop->layerName, list->list[i].info.layerName)) {
             return true;
+        }
     }
     return false;
 }
 
-/*
- * Search the given layer list for a layer
- * matching the given name
- */
+// Search the given layer list for a layer matching the given name
 bool has_layer_name(const char *name, const struct loader_layer_list *list) {
     for (uint32_t i = 0; i < list->count; i++) {
         if (strcmp(name, list->list[i].info.layerName) == 0)
@@ -1093,10 +1082,8 @@ bool has_layer_name(const char *name, const struct loader_layer_list *list) {
     return false;
 }
 
-/*
- * Append non-duplicate layer properties defined in prop_list
- * to the given layer_info list
- */
+// Append non-duplicate layer properties defined in prop_list to the given
+// layer_info list
 VkResult loader_add_to_layer_list(const struct loader_instance *inst,
                                   struct loader_layer_list *list,
                                   uint32_t prop_list_count,
@@ -1114,13 +1101,12 @@ VkResult loader_add_to_layer_list(const struct loader_instance *inst,
     for (i = 0; i < prop_list_count; i++) {
         layer = (struct loader_layer_properties *)&props[i];
 
-        // look for duplicates
+        // Look for duplicates
         if (has_vk_layer_property(&layer->info, list)) {
             continue;
         }
 
-        // add to list at end
-        // check for enough capacity
+        // Add to list at end.  Check for enough capacity
         if (list->count * sizeof(struct loader_layer_properties) >=
             list->capacity) {
 
@@ -1133,7 +1119,7 @@ VkResult loader_add_to_layer_list(const struct loader_instance *inst,
                            "add new layer");
                 return VK_ERROR_OUT_OF_HOST_MEMORY;
             }
-            // double capacity
+            // Double capacity
             list->capacity *= 2;
         }
 
@@ -1145,13 +1131,10 @@ VkResult loader_add_to_layer_list(const struct loader_instance *inst,
     return VK_SUCCESS;
 }
 
-/**
- * Search the search_list for any layer with a name
- * that matches the given name and a type that matches the given type
- * Add all matching layers to the found_list
- * Do not add if found loader_layer_properties is already
- * on the found_list.
- */
+// Search the search_list for any layer with a name that matches the given
+// name and a type that matches the given type.  Add all matching layers to
+// the found_list.  Do not add if found loader_layer_properties is already
+// in the found_list.
 void loader_find_layer_name_add_list(
     const struct loader_instance *inst, const char *name,
     const enum layer_type type, const struct loader_layer_list *search_list,
@@ -1161,13 +1144,15 @@ void loader_find_layer_name_add_list(
         struct loader_layer_properties *layer_prop = &search_list->list[i];
         if (0 == strcmp(layer_prop->info.layerName, name) &&
             (layer_prop->type & type)) {
-            /* Found a layer with the same name, add to found_list */
+            // Found a layer with the same name, add to found_list.
             if (VK_SUCCESS ==
                 loader_add_to_layer_list(inst, found_list, 1, layer_prop)) {
                 found = true;
+                break;
             }
         }
     }
+
     if (!found) {
         loader_log(inst, VK_DEBUG_REPORT_WARNING_BIT_EXT, 0,
                    "Warning, couldn't find layer name %s to activate", name);
@@ -1767,32 +1752,6 @@ struct loader_manifest_files {
 };
 
 /**
- * Get next file or dirname given a string list or registry key path
- *
- * \returns
- * A pointer to first char in the next path.
- * The next path (or NULL) in the list is returned in next_path.
- * Note: input string is modified in some cases. PASS IN A COPY!
- */
-static char *loader_get_next_path(char *path) {
-    uint32_t len;
-    char *next;
-
-    if (path == NULL)
-        return NULL;
-    next = strchr(path, PATH_SEPARATOR);
-    if (next == NULL) {
-        len = (uint32_t)strlen(path);
-        next = path + len;
-    } else {
-        *next = '\0';
-        next++;
-    }
-
-    return next;
-}
-
-/**
  * Given a path which is absolute or relative, expand the path if relative or
  * leave the path unmodified if absolute. The base path to prepend to relative
  * paths is given in rel_base.
@@ -1979,8 +1938,9 @@ VkResult loader_copy_layer_properties(const struct loader_instance *inst,
 static bool
 loader_find_layer_name_list(const char *name,
                             const struct loader_layer_list *layer_list) {
-    if (!layer_list)
+    if (!layer_list) {
         return false;
+    }
     for (uint32_t j = 0; j < layer_list->count; j++)
         if (!strcmp(name, layer_list->list[j].info.layerName))
             return true;
@@ -1989,8 +1949,9 @@ loader_find_layer_name_list(const char *name,
 
 static bool loader_find_layer_name(const char *name, uint32_t layer_count,
                                    const char **layer_list) {
-    if (!layer_list)
+    if (!layer_list) {
         return false;
+    }
     for (uint32_t j = 0; j < layer_count; j++)
         if (!strcmp(name, layer_list[j]))
             return true;
@@ -2000,8 +1961,9 @@ static bool loader_find_layer_name(const char *name, uint32_t layer_count,
 bool loader_find_layer_name_array(
     const char *name, uint32_t layer_count,
     const char layer_list[][VK_MAX_EXTENSION_NAME_SIZE]) {
-    if (!layer_list)
+    if (!layer_list) {
         return false;
+    }
     for (uint32_t j = 0; j < layer_count; j++)
         if (!strcmp(name, layer_list[j]))
             return true;
@@ -2010,9 +1972,8 @@ bool loader_find_layer_name_array(
 
 /**
  * Searches through an array of layer names (ppp_layer_names) looking for a
- * layer key_name.
- * If not found then simply returns updating nothing.
- * Otherwise, it uses expand_count, expand_names adding them to layer names.
+ * layer key_name.  If not found then simply returns updating nothing.
+ * Otherwise, it uses expand_count, expand_names adding them to layer names. An
  * Any duplicate (pre-existing) expand_names in layer names are removed.
  * Order is otherwise preserved, with the layer key_name being replaced by the
  * expand_names.
@@ -3120,7 +3081,6 @@ void loader_layer_scan(const struct loader_instance *inst,
     struct loader_manifest_files
         manifest_files[2]; // [0] = explicit, [1] = implicit
     cJSON *json;
-    uint32_t implicit;
     bool lockedMutex = false;
 
     memset(manifest_files, 0, sizeof(struct loader_manifest_files) * 2);
@@ -3148,18 +3108,19 @@ void loader_layer_scan(const struct loader_instance *inst,
         goto out;
     }
 
-    // cleanup any previously scanned libraries
+    // Cleanup any previously scanned libraries
     loader_delete_layer_properties(inst, instance_layers);
 
     loader_platform_thread_lock_mutex(&loader_json_lock);
     lockedMutex = true;
-    for (implicit = 0; implicit < 2; implicit++) {
-        for (uint32_t i = 0; i < manifest_files[implicit].count; i++) {
-            file_str = manifest_files[implicit].filename_list[i];
+    for (uint32_t layer_type = 0; layer_type < 2; layer_type++) {
+        for (uint32_t layer = 0; layer < manifest_files[layer_type].count;
+             layer++) {
+            file_str = manifest_files[layer_type].filename_list[layer];
             if (file_str == NULL)
                 continue;
 
-            // parse file into JSON struct
+            // Parse file into JSON struct
             VkResult res = loader_get_json(inst, file_str, &json);
             if (VK_ERROR_OUT_OF_HOST_MEMORY == res) {
                 break;
@@ -3168,12 +3129,12 @@ void loader_layer_scan(const struct loader_instance *inst,
             }
 
             loader_add_layer_properties(inst, instance_layers, json,
-                                        (implicit == 1), file_str);
+                                        (layer_type == 1), file_str);
             cJSON_Delete(json);
         }
     }
 
-    // add a meta layer for validation if the validation layers are all present
+    // Add a meta layer for validation if the validation layers are all present
     loader_add_layer_property_meta(inst, sizeof(std_validation_names) /
                                              sizeof(std_validation_names[0]),
                                    std_validation_names, instance_layers);
@@ -3608,27 +3569,24 @@ void loader_deactivate_layers(const struct loader_instance *instance,
     loader_destroy_layer_list(instance, device, list);
 }
 
-/**
- * Go through the search_list and find any layers which match type. If layer
- * type match is found in then add it to ext_list.
- */
+// Go through the search_list and find any layers which match type. If layer
+// type match is found in then add it to ext_list.
 static void
 loader_add_layer_implicit(const struct loader_instance *inst,
-                          const enum layer_type type,
                           struct loader_layer_list *list,
                           const struct loader_layer_list *search_list) {
     bool enable;
     char *env_value;
-    uint32_t i;
-    for (i = 0; i < search_list->count; i++) {
+
+    for (uint32_t i = 0; i < search_list->count; i++) {
         const struct loader_layer_properties *prop = &search_list->list[i];
-        if (prop->type & type) {
-            /* Found an implicit layer, see if it should be enabled */
+        if (prop->type & VK_LAYER_TYPE_INSTANCE_IMPLICIT) {
+            // Found an implicit layer, see if it should be enabled
             enable = false;
 
-            // if no enable_environment variable is specified, this implicit
-            // layer
-            // should always be enabled. Otherwise check if the variable is set
+            // If no enable_environment variable is specified, this implicit
+            // layer should always be enabled. Otherwise check if the variable
+            // is set.
             if (prop->enable_env_var.name[0] == 0) {
                 enable = true;
             } else {
@@ -3638,10 +3596,10 @@ loader_add_layer_implicit(const struct loader_instance *inst,
                 loader_free_getenv(env_value, inst);
             }
 
-            // disable_environment has priority, i.e. if both enable and disable
-            // environment variables are set, the layer is disabled. Implicit
-            // layers
-            // are required to have a disable_environment variables
+            // Disable_environment has priority, i.e. if both enable and
+            // disable environment variables are set, the layer is disabled.
+            // Implicit layers are required to have a disable_environment
+            // variables.
             env_value = loader_getenv(prop->disable_env_var.name, inst);
             if (env_value) {
                 enable = false;
@@ -3655,88 +3613,401 @@ loader_add_layer_implicit(const struct loader_instance *inst,
     }
 }
 
-/**
- * Get the layer name(s) from the env_name environment variable. If layer
- * is found in search_list then add it to layer_list.  But only add it to
- * layer_list if type matches.
- */
-static void loader_add_layer_env(struct loader_instance *inst,
-                                 const enum layer_type type,
-                                 const char *env_name,
-                                 struct loader_layer_list *layer_list,
-                                 const struct loader_layer_list *search_list) {
-    char *layerEnv;
-    char *next, *name;
-
-    layerEnv = loader_getenv(env_name, inst);
-    if (layerEnv == NULL) {
-        return;
-    }
-    name = loader_stack_alloc(strlen(layerEnv) + 1);
-    if (name == NULL) {
-        return;
-    }
-    strcpy(name, layerEnv);
-
-    loader_free_getenv(layerEnv, inst);
-
-    while (name && *name) {
-        next = loader_get_next_path(name);
-        if (!strcmp(std_validation_str, name)) {
-            /* add meta list of layers
-               don't attempt to remove duplicate layers already added by app or
-               env var
-             */
-            loader_log(inst, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, 0,
-                       "Expanding meta layer %s found in environment variable",
-                       std_validation_str);
-            if (type == VK_LAYER_TYPE_INSTANCE_EXPLICIT)
-                inst->activated_layers_are_std_val = true;
-            for (uint32_t i = 0; i < sizeof(std_validation_names) /
-                                         sizeof(std_validation_names[0]);
-                 i++) {
-                loader_find_layer_name_add_list(inst, std_validation_names[i],
-                                                type, search_list, layer_list);
-            }
-        } else {
-            loader_find_layer_name_add_list(inst, name, type, search_list,
-                                            layer_list);
-        }
-        name = next;
-    }
-
-    return;
-}
-
 VkResult
 loader_enable_instance_layers(struct loader_instance *inst,
                               const VkInstanceCreateInfo *pCreateInfo,
                               const struct loader_layer_list *instance_layers) {
-    VkResult err;
+    VkResult ret_val = VK_SUCCESS;
+    uint8_t name_start = 0;
+    int16_t i = 0;
+    int16_t j = 0;
+    int16_t k = 0;
+    uint16_t env_enable_layer_count = 0;
+    uint16_t env_disable_layer_count = 0;
+    uint16_t instance_enable_layer_count = 0;
+    uint16_t instance_disable_layer_count = 0;
+    uint16_t app_enable_layer_count = 0;
+    uint16_t app_disable_layer_count = 0;
+    uint16_t total_enable_layer_count = 0;
+    uint16_t total_disable_layer_count = 0;
+    uint16_t cur_enable_layer = 0;
+    uint16_t cur_disable_layer = 0;
+    char *layer_env_val = NULL;
+    char *layer_env_list = NULL;
+    char *layer_env_list2 = NULL;
+    char *name;
+    char *next;
+    char **full_enable_layer_list = NULL;
+    char **full_disable_layer_list = NULL;
+    const int16_t num_std_valid =
+        sizeof(std_validation_names) / sizeof(std_validation_names[0]);
+    bool allow_implicit = true;
 
-    assert(inst && "Cannot have null instance");
-
-    if (!loader_init_layer_list(inst, &inst->activated_layer_list)) {
-        loader_log(inst, VK_DEBUG_REPORT_ERROR_BIT_EXT, 0,
-                   "Failed to alloc Instance activated layer list");
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    // If an environment variable exists for the layer list, check it
+    // to see if we have to disable any implicit layer.
+    layer_env_val = loader_getenv("VK_INSTANCE_LAYERS", inst);
+    if (NULL != layer_env_val) {
+        layer_env_list = loader_stack_alloc(strlen(layer_env_val) + 1);
+        layer_env_list2 = loader_stack_alloc(strlen(layer_env_val) + 1);
+        if (NULL == layer_env_list ||
+            NULL == layer_env_list2) {
+            ret_val = VK_ERROR_OUT_OF_HOST_MEMORY;
+            goto out;
+        }
+        strcpy(layer_env_list, layer_env_val);
+        loader_free_getenv(layer_env_val, inst);
     }
 
-    /* Add any implicit layers first */
-    loader_add_layer_implicit(inst, VK_LAYER_TYPE_INSTANCE_IMPLICIT,
-                              &inst->activated_layer_list, instance_layers);
+    // Determine how many items are in the environment variable list, and
+    // how many are disables
+    if (NULL != layer_env_list) {
+        strcpy(layer_env_list2, layer_env_val);
+        name = layer_env_list2;
+        while (name && *name) {
+            next = loader_get_next_path(name);
+            if (name[0] == '-') {
+                name_start = 1;
+            } else {
+                name_start = 0;
+            }
 
-    /* Add any layers specified via environment variable next */
-    loader_add_layer_env(inst, VK_LAYER_TYPE_INSTANCE_EXPLICIT,
-                         "VK_INSTANCE_LAYERS", &inst->activated_layer_list,
-                         instance_layers);
+            // If this is the global disable of all implicit layers,
+            // flag it as such.
+            if (!strcmp(disable_implicit_string, &name[name_start])) {
+                allow_implicit = false;
+            } else if (!strcmp(std_validation_str, &name[name_start])) {
+                // This is a meta layer, so determine how many
+                // more layers need to be added in the final list.
+                if (name_start == 0) {
+                    env_enable_layer_count += num_std_valid;
+                } else {
+                    env_disable_layer_count += num_std_valid;
+                }
+            } else {
+                if (name_start == 0) {
+                    env_enable_layer_count++;
+                } else {
+                    env_disable_layer_count++;
+                }
+            }
+            name = next;
+        }
+        total_enable_layer_count += env_enable_layer_count;
+        total_disable_layer_count += env_disable_layer_count;
+    }
 
-    /* Add layers specified by the application */
-    err = loader_add_layer_names_to_list(
-        inst, &inst->activated_layer_list, pCreateInfo->enabledLayerCount,
-        pCreateInfo->ppEnabledLayerNames, instance_layers);
+    // Determine if there is a disable in the list of requested layers.
+    for (i = 0; i < (int16_t)pCreateInfo->enabledLayerCount; i++) {
+        if (pCreateInfo->ppEnabledLayerNames[i][0] == '-') {
+            name_start = 1;
+        } else {
+            name_start = 0;
+        }
 
-    return err;
+        // If this is the global disable of all implicit layers,
+        // flag it as such.
+        if (!strcmp(disable_implicit_string,
+                    &pCreateInfo->ppEnabledLayerNames[i][name_start])) {
+            allow_implicit = false;
+        } else if (!strcmp(std_validation_str,
+                           &pCreateInfo->ppEnabledLayerNames[i][name_start])) {
+            // This is a meta layer, so determine how many
+            // more layers need to be added in the final list.
+            if (name_start == 0) {
+                app_enable_layer_count += num_std_valid;
+            } else {
+                app_disable_layer_count += num_std_valid;
+            }
+        } else {
+            if (name_start == 0) {
+                app_enable_layer_count++;
+            } else {
+                app_disable_layer_count++;
+            }
+        }
+    }
+    total_enable_layer_count += app_enable_layer_count;
+    total_disable_layer_count += app_disable_layer_count;
+
+    if (allow_implicit) {
+        // Determine how many implicit layers are in the instance list, and if
+        // there
+        // are any disables as well
+        for (i = 0; i < (int16_t)instance_layers->count; i++) {
+            const struct loader_layer_properties *prop =
+                &instance_layers->list[i];
+            if (prop->type & VK_LAYER_TYPE_INSTANCE_IMPLICIT) {
+                if (prop->info.layerName[0] == '-') {
+                    name_start = 1;
+                } else {
+                    name_start = 0;
+                }
+
+                // Determine if this is a meta layer, and, if so, how many
+                // more layers need to be added in the final list.
+                if (!strcmp(std_validation_str,
+                            &prop->info.layerName[name_start])) {
+                    if (name_start == 0) {
+                        instance_enable_layer_count += num_std_valid;
+                    } else {
+                        instance_disable_layer_count += num_std_valid;
+                    }
+                } else {
+                    if (name_start == 0) {
+                        instance_enable_layer_count++;
+                    } else {
+                        instance_disable_layer_count++;
+                    }
+                }
+            }
+        }
+        total_enable_layer_count += instance_enable_layer_count;
+        total_disable_layer_count += instance_disable_layer_count;
+    }
+
+    // If no layers are available, just return
+    if (total_enable_layer_count == 0) {
+        goto out;
+    }
+
+    // Allocate space for two separate layer lists.  One list will contain
+    // layers to enable, the other will contain a list of layers to disable.
+    full_enable_layer_list =
+        loader_stack_alloc(sizeof(char *) * total_enable_layer_count);
+    if (NULL == full_enable_layer_list) {
+        ret_val = VK_ERROR_OUT_OF_HOST_MEMORY;
+        goto out;
+    }
+    for (i = 0; i < total_enable_layer_count; i++) {
+        full_enable_layer_list[i] =
+            loader_stack_alloc(sizeof(char) * VK_MAX_EXTENSION_NAME_SIZE);
+        if (NULL == full_enable_layer_list[i]) {
+            ret_val = VK_ERROR_OUT_OF_HOST_MEMORY;
+            goto out;
+        }
+    }
+
+    if (total_disable_layer_count > 0) {
+        full_disable_layer_list =
+            loader_stack_alloc(sizeof(char *) * total_disable_layer_count);
+        if (NULL == full_disable_layer_list) {
+            ret_val = VK_ERROR_OUT_OF_HOST_MEMORY;
+            goto out;
+        }
+        for (i = 0; i < total_disable_layer_count; i++) {
+            full_disable_layer_list[i] =
+                loader_stack_alloc(sizeof(char) * VK_MAX_EXTENSION_NAME_SIZE);
+            if (NULL == full_disable_layer_list[i]) {
+                ret_val = VK_ERROR_OUT_OF_HOST_MEMORY;
+                goto out;
+            }
+        }
+    }
+
+    // Now go through and fill in the lists
+
+    // Add the implicit layers first from the instance list
+    if (allow_implicit) {
+        for (i = 0; i < (int16_t)instance_layers->count; i++) {
+            const struct loader_layer_properties *prop =
+                &instance_layers->list[i];
+            if (prop->type & VK_LAYER_TYPE_INSTANCE_IMPLICIT) {
+                bool enable = false;
+                char *env_value;
+
+                if (prop->info.layerName[0] == '-') {
+                    name_start = 1;
+                } else {
+                    name_start = 0;
+                }
+
+                // If no enable_environment variable is specified, this implicit
+                // layer should always be enabled. Otherwise check if the variable
+                // is set.
+                if (prop->enable_env_var.name[0] == 0) {
+                    enable = true;
+                } else {
+                    env_value = loader_getenv(prop->enable_env_var.name, inst);
+                    if (env_value && !strcmp(prop->enable_env_var.value, env_value))
+                        enable = true;
+                    loader_free_getenv(env_value, inst);
+                }
+
+                // Disable_environment has priority, i.e. if both enable and
+                // disable environment variables are set, the layer is disabled.
+                // Implicit layers are required to have a disable_environment
+                // variables.
+                env_value = loader_getenv(prop->disable_env_var.name, inst);
+                if (env_value) {
+                    enable = false;
+                }
+                loader_free_getenv(env_value, inst);
+
+                // Only add the items if the layer is enabled.  If it is not
+                // enabled, remove the counts from the list so we can keep
+                // proper track of what's really there.
+                if (!strcmp(std_validation_str,
+                    &prop->info.layerName[name_start])) {
+                    if (enable) {
+                        for (j = 0; j < num_std_valid; j++) {
+                            if (name_start > 0) {
+                                strncpy(
+                                    full_disable_layer_list[cur_disable_layer++],
+                                    std_validation_names[j],
+                                    VK_MAX_EXTENSION_NAME_SIZE);
+                            } else {
+                                strncpy(full_enable_layer_list[cur_enable_layer++],
+                                    std_validation_names[j],
+                                    VK_MAX_EXTENSION_NAME_SIZE);
+                            }
+                        }
+                    } else {
+                        if (name_start > 0) {
+                            total_disable_layer_count -= num_std_valid;
+                            instance_disable_layer_count -= num_std_valid;
+                        } else {
+                            total_enable_layer_count -= num_std_valid;
+                            instance_enable_layer_count -= num_std_valid;
+                        }
+                    }
+                } else {
+                    if (name_start > 0) {
+                        if (enable) {
+                            strncpy(full_disable_layer_list[cur_disable_layer++],
+                                &prop->info.layerName[name_start],
+                                VK_MAX_EXTENSION_NAME_SIZE);
+                        } else {
+                            total_disable_layer_count--;
+                            instance_disable_layer_count--;
+                        }
+                    } else {
+                        if (enable) {
+                            strncpy(full_enable_layer_list[cur_enable_layer++],
+                                prop->info.layerName,
+                                VK_MAX_EXTENSION_NAME_SIZE);
+                        } else {
+                            total_enable_layer_count--;
+                            instance_enable_layer_count--;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Now add in the environment list
+    if (NULL != layer_env_list) {
+        strcpy(layer_env_list2, layer_env_val);
+        name = layer_env_list2;
+
+        while (name && *name) {
+            next = loader_get_next_path(name);
+            if (name[0] == '-') {
+                name_start = 1;
+            } else {
+                name_start = 0;
+            }
+
+            // If this is the special disable_implicit_layer string, then
+            // just skip it here.
+            if (!strcmp(disable_implicit_string, &name[name_start])) {
+                // Just skip
+            } else if (!strcmp(std_validation_str, &name[name_start])) {
+                for (j = 0; j < num_std_valid; j++) {
+                    if (name_start > 0) {
+                        strncpy(full_disable_layer_list[cur_disable_layer++],
+                                std_validation_names[j],
+                                VK_MAX_EXTENSION_NAME_SIZE);
+                    } else {
+                        strncpy(full_enable_layer_list[cur_enable_layer++],
+                                std_validation_names[j],
+                                VK_MAX_EXTENSION_NAME_SIZE);
+                    }
+                }
+            } else {
+                if (name_start > 0) {
+                    strncpy(full_disable_layer_list[cur_disable_layer++],
+                            &name[name_start], VK_MAX_EXTENSION_NAME_SIZE);
+                } else {
+                    strncpy(full_enable_layer_list[cur_enable_layer++], name,
+                            VK_MAX_EXTENSION_NAME_SIZE);
+                }
+            }
+
+            name = next;
+        }
+    }
+
+    // Finally add in the application requests
+    for (i = 0; i < (int16_t)pCreateInfo->enabledLayerCount; i++) {
+        if (pCreateInfo->ppEnabledLayerNames[i][0] == '-') {
+            name_start = 1;
+        } else {
+            name_start = 0;
+        }
+
+        // If this is the special disable_implicit_layer string, then
+        // just skip it here.
+        if (!strcmp(disable_implicit_string,
+            &pCreateInfo->ppEnabledLayerNames[i][name_start])) {
+            // Just skip
+        } else if (!strcmp(std_validation_str,
+                    &pCreateInfo->ppEnabledLayerNames[i][name_start])) {
+            for (j = 0; j < num_std_valid; j++) {
+                if (name_start > 0) {
+                    strncpy(full_disable_layer_list[cur_disable_layer++],
+                            std_validation_names[j],
+                            VK_MAX_EXTENSION_NAME_SIZE);
+                } else {
+                    strncpy(full_enable_layer_list[cur_enable_layer++],
+                            std_validation_names[j],
+                            VK_MAX_EXTENSION_NAME_SIZE);
+                }
+            }
+        } else {
+            if (name_start > 0) {
+                strncpy(full_disable_layer_list[cur_disable_layer++],
+                        &pCreateInfo->ppEnabledLayerNames[i][name_start],
+                        VK_MAX_EXTENSION_NAME_SIZE);
+            } else {
+                strncpy(full_enable_layer_list[cur_enable_layer++],
+                        pCreateInfo->ppEnabledLayerNames[i],
+                        VK_MAX_EXTENSION_NAME_SIZE);
+            }
+        }
+    }
+    assert(cur_enable_layer == total_enable_layer_count);
+    assert(cur_disable_layer == total_disable_layer_count);
+
+    // If the layer in the enable list is in the disable list, we need
+    // to remove it.
+    for (i = 0; i < total_disable_layer_count; i++) {
+        for (j = 0; j < total_enable_layer_count; j++) {
+            if (!strcmp(full_disable_layer_list[i],
+                        full_enable_layer_list[j])) {
+                for (k = j; k < total_enable_layer_count - 1; k++) {
+                    strncpy(full_enable_layer_list[k],
+                            full_enable_layer_list[k + 1],
+                            VK_MAX_EXTENSION_NAME_SIZE);
+                }
+                // Reduce the count, and step back j by one.
+                total_enable_layer_count--;
+                j--;
+            }
+        }
+    }
+
+    // Add any remaining names left in the enable list,
+    for (j = 0; j < total_enable_layer_count; j++) {
+        loader_find_layer_name_add_list(
+            inst, full_enable_layer_list[j],
+            VK_LAYER_TYPE_INSTANCE_IMPLICIT | VK_LAYER_TYPE_INSTANCE_EXPLICIT,
+            instance_layers, &inst->activated_layer_list);
+    }
+
+out:
+
+    return ret_val;
 }
 
 /*
@@ -4002,10 +4273,26 @@ VkResult loader_validate_layers(const struct loader_instance *inst,
                                 const char *const *ppEnabledLayerNames,
                                 const struct loader_layer_list *list) {
     struct loader_layer_properties *prop;
+    uint32_t name_start = 0;
 
     for (uint32_t i = 0; i < layer_count; i++) {
-        VkStringErrorFlags result =
-            vk_string_validate(MaxLoaderStringLength, ppEnabledLayerNames[i]);
+        // Ignore the subtraction symbol at this point since we want
+        // to make sure the layer is actually valid before we disable
+        // it.
+        if (ppEnabledLayerNames[i][0] == '-') {
+            name_start = 1;
+        } else {
+            name_start = 0;
+        }
+
+        // Special case layer.  Disable all implicit layers
+        if (!strcmp(disable_implicit_string,
+                    &ppEnabledLayerNames[i][name_start])) {
+            break;
+        }
+
+        VkStringErrorFlags result = vk_string_validate(
+            MaxLoaderStringLength, &ppEnabledLayerNames[i][name_start]);
         if (result != VK_STRING_ERROR_NONE) {
             loader_log(inst, VK_DEBUG_REPORT_ERROR_BIT_EXT, 0,
                        "Loader: Device ppEnabledLayerNames contains string "
@@ -4013,7 +4300,8 @@ VkResult loader_validate_layers(const struct loader_instance *inst,
             return VK_ERROR_LAYER_NOT_PRESENT;
         }
 
-        prop = loader_get_layer_property(ppEnabledLayerNames[i], list);
+        prop = loader_get_layer_property(&ppEnabledLayerNames[i][name_start],
+                                         list);
         if (!prop) {
             return VK_ERROR_LAYER_NOT_PRESENT;
         }
@@ -4127,10 +4415,8 @@ VkResult loader_validate_device_extensions(
     return VK_SUCCESS;
 }
 
-/**
- * Terminator functions for the Instance chain
- * All named terminator_<Vulakn API name>
- */
+// Terminator functions for the Instance chain
+// All named terminator_<Vulakn API name>
 VKAPI_ATTR VkResult VKAPI_CALL terminator_CreateInstance(
     const VkInstanceCreateInfo *pCreateInfo,
     const VkAllocationCallbacks *pAllocator, VkInstance *pInstance) {
@@ -4147,13 +4433,10 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_CreateInstance(
     icd_create_info.enabledLayerCount = 0;
     icd_create_info.ppEnabledLayerNames = NULL;
 
-    /*
-     * NOTE: Need to filter the extensions to only those
-     * supported by the ICD.
-     * No ICD will advertise support for layers. An ICD
-     * library could support a layer, but it would be
-     * independent of the actual ICD, just in the same library.
-     */
+    // NOTE: Need to filter the extensions to only those supported by the ICD.
+    // No ICD will advertise support for layers. An ICD library could support
+    // a layer, but it would be independent of the actual ICD, just in the
+    // same library.
     filtered_extension_names =
         loader_stack_alloc(pCreateInfo->enabledExtensionCount * sizeof(char *));
     if (!filtered_extension_names) {
@@ -4175,21 +4458,24 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_CreateInstance(
 
         loader_log(ptr_instance, VK_DEBUG_REPORT_DEBUG_BIT_EXT, 0,
                    "Build ICD instance extension list");
-        // traverse scanned icd list adding non-duplicate extensions to the
+
+        // Traverse scanned icd list adding non-duplicate extensions to the
         // list
         res = loader_init_generic_list(ptr_instance,
                                        (struct loader_generic_list *)&icd_exts,
                                        sizeof(VkExtensionProperties));
-        if (VK_ERROR_OUT_OF_HOST_MEMORY == res) {
-            // If out of memory, bail immediately.
-            goto out;
-        } else if (VK_SUCCESS != res) {
-            // Something bad happened with this ICD, so free it and try the
-            // next.
-            ptr_instance->icd_terms = icd_term->next;
-            icd_term->next = NULL;
-            loader_icd_destroy(ptr_instance, icd_term, pAllocator);
-            continue;
+        if (VK_SUCCESS != res) {
+            if (VK_ERROR_OUT_OF_HOST_MEMORY == res) {
+                // If out of memory, bail immediately.
+                goto out;
+            } else {
+                // Something bad happened with this ICD, so free it and try
+                // the next.
+                ptr_instance->icd_terms = icd_term->next;
+                icd_term->next = NULL;
+                loader_icd_destroy(ptr_instance, icd_term, pAllocator);
+                continue;
+            }
         }
 
         res = loader_add_instance_extensions(
@@ -4732,17 +5018,18 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_EnumerateDeviceExtensionProperties(
 
     assert(pLayerName == NULL || strlen(pLayerName) == 0);
 
-    /* Any layer or trampoline wrapping should be removed at this point in time
-     * can just cast to the expected type for VkPhysicalDevice. */
+    // Any layer or trampoline wrapping should be removed at this point-
+    // in-time.  We can just cast to the expected type for
+    // VkPhysicalDevice.
     phys_dev_term = (struct loader_physical_device_term *)physicalDevice;
 
-    /* this case is during the call down the instance chain with pLayerName
-     * == NULL*/
+    // This case is during the call down the instance chain with
+    // pLayerName == NULL
     struct loader_icd_term *icd_term = phys_dev_term->this_icd_term;
     uint32_t icd_ext_count = *pPropertyCount;
     VkResult res;
 
-    /* get device extensions */
+    // Get device extensions
     res = icd_term->EnumerateDeviceExtensionProperties(
         phys_dev_term->phys_dev, NULL, &icd_ext_count, pProperties);
     if (res != VK_SUCCESS) {
@@ -4755,15 +5042,14 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_EnumerateDeviceExtensionProperties(
         goto out;
     }
 
-    loader_add_layer_implicit(
-        icd_term->this_instance, VK_LAYER_TYPE_INSTANCE_IMPLICIT,
-        &implicit_layer_list, &icd_term->this_instance->instance_layer_list);
-    /* we need to determine which implicit layers are active,
-     * and then add their extensions. This can't be cached as
-     * it depends on results of environment variables (which can change).
-     */
+    loader_add_layer_implicit(icd_term->this_instance, &implicit_layer_list,
+                              &icd_term->this_instance->instance_layer_list);
+
+    // We need to determine which implicit layers are active,
+    // and then add their extensions. This can't be cached as
+    // it depends on results of environment variables (which can change).
     if (pProperties != NULL) {
-        /* initialize dev_extension list within the physicalDevice object */
+        // Initialize dev_extension list within the physicalDevice object
         res = loader_init_device_extensions(icd_term->this_instance,
                                             phys_dev_term, icd_ext_count,
                                             pProperties, &icd_exts);
@@ -4771,21 +5057,11 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_EnumerateDeviceExtensionProperties(
             goto out;
         }
 
-        /* we need to determine which implicit layers are active,
-         * and then add their extensions. This can't be cached as
-         * it depends on results of environment variables (which can
-         * change).
-         */
         res = loader_add_to_ext_list(icd_term->this_instance, &all_exts,
                                      icd_exts.count, icd_exts.list);
         if (res != VK_SUCCESS) {
             goto out;
         }
-
-        loader_add_layer_implicit(
-            icd_term->this_instance, VK_LAYER_TYPE_INSTANCE_IMPLICIT,
-            &implicit_layer_list,
-            &icd_term->this_instance->instance_layer_list);
 
         for (uint32_t i = 0; i < implicit_layer_list.count; i++) {
             for (uint32_t j = 0;
@@ -4801,23 +5077,24 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_EnumerateDeviceExtensionProperties(
                 }
             }
         }
+
         uint32_t capacity = *pPropertyCount;
         VkExtensionProperties *props = pProperties;
 
         for (uint32_t i = 0; i < all_exts.count && i < capacity; i++) {
             props[i] = all_exts.list[i];
         }
-        /* wasn't enough space for the extensions, we did partial copy now
-         * return VK_INCOMPLETE */
+
+        // Wasn't enough space for the extensions, we did partial copy now
+        // return VK_INCOMPLETE.
         if (capacity < all_exts.count) {
             res = VK_INCOMPLETE;
         } else {
             *pPropertyCount = all_exts.count;
         }
     } else {
-        /* just return the count; need to add in the count of implicit layer
-         * extensions
-         * don't worry about duplicates being added in the count */
+        // Just return the count; need to add in the count of implicit layer
+        // extensions don't worry about duplicates being added in the count.
         *pPropertyCount = icd_ext_count;
 
         for (uint32_t i = 0; i < implicit_layer_list.count; i++) {

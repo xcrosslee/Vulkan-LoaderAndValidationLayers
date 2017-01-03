@@ -8405,7 +8405,6 @@ static inline bool CheckItgOffset(layer_data *dev_data, const GLOBAL_CB_NODE *cb
     if (IsExtentZero(granularity)) {
         // If the queue family image transfer granularity is (0, 0, 0), then the offset must always be (0, 0, 0)
         if (IsExtentZero(&offset_extent) == false) {
-// mewmew
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                             DRAWSTATE_IMAGE_TRANSFER_GRANULARITY, "DS",
                             "%s: pRegion[%d].%s (x=%d, y=%d, z=%d) must be (x=0, y=0, z=0) "
@@ -8416,7 +8415,6 @@ static inline bool CheckItgOffset(layer_data *dev_data, const GLOBAL_CB_NODE *cb
         // If the queue family image transfer granularity is not (0, 0, 0), then the offset dimensions must always be even
         // integer multiples of the image transfer granularity.
         if (IsExtentAligned(&offset_extent, granularity) == false) {
-// mewmew
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                             DRAWSTATE_IMAGE_TRANSFER_GRANULARITY, "DS",
                             "%s: pRegion[%d].%s (x=%d, y=%d, z=%d) dimensions must be even integer "
@@ -8437,7 +8435,6 @@ static inline bool CheckItgExtent(layer_data *dev_data, const GLOBAL_CB_NODE *cb
         // If the queue family image transfer granularity is (0, 0, 0), then the extent must always match the image
         // subresource extent.
         if (IsExtentEqual(extent, subresource_extent) == false) {
-// mewmew
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                             DRAWSTATE_IMAGE_TRANSFER_GRANULARITY, "DS",
                             "%s: pRegion[%d].%s (w=%d, h=%d, d=%d) must match the image subresource extents (w=%d, h=%d, d=%d) "
@@ -8455,7 +8452,6 @@ static inline bool CheckItgExtent(layer_data *dev_data, const GLOBAL_CB_NODE *cb
         offset_extent_sum.depth = static_cast<uint32_t>(abs(offset->z)) + extent->depth;
         if ((IsExtentAligned(extent, granularity) == false) && (IsExtentEqual(&offset_extent_sum, subresource_extent) == false)) {
             skip |=
-// mewmew
                 log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                         DRAWSTATE_IMAGE_TRANSFER_GRANULARITY, "DS",
                         "%s: pRegion[%d].%s (w=%d, h=%d, d=%d) dimensions must be even integer multiples of this command buffer's "
@@ -8474,7 +8470,6 @@ static inline bool CheckItgInt(layer_data *dev_data, const GLOBAL_CB_NODE *cb_no
                                const uint32_t granularity, const uint32_t i, const char *function, const char *member) {
     bool skip = false;
     if (vk_safe_modulo(value, granularity) != 0) {
-// mewmew
         skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                         DRAWSTATE_IMAGE_TRANSFER_GRANULARITY, "DS",
                         "%s: pRegion[%d].%s (%d) must be an even integer multiple of this command buffer's queue family image "
@@ -8489,7 +8484,6 @@ static inline bool CheckItgSize(layer_data *dev_data, const GLOBAL_CB_NODE *cb_n
                                 const uint32_t granularity, const uint32_t i, const char *function, const char *member) {
     bool skip = false;
     if (vk_safe_modulo(value, granularity) != 0) {
-// mewmew
         skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                         DRAWSTATE_IMAGE_TRANSFER_GRANULARITY, "DS",
                         "%s: pRegion[%d].%s (%" PRIdLEAST64
@@ -8598,15 +8592,15 @@ CmdCopyImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcI
 
 // Validate that an image's sampleCount matches the requirement for a specific API call
 static inline bool ValidateImageSampleCount(layer_data *dev_data, IMAGE_STATE *image_state, VkSampleCountFlagBits sample_count,
-                                            const char *location) {
+                                            const char *location, UNIQUE_VALIDATION_ERROR_CODE msgCode) {
     bool skip = false;
     if (image_state->createInfo.samples != sample_count) {
-// mewmew
-        skip = log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT,
-                       reinterpret_cast<uint64_t &>(image_state->image), 0, DRAWSTATE_NUM_SAMPLES_MISMATCH, "DS",
-                       "%s for image 0x%" PRIxLEAST64 " was created with a sample count of %s but must be %s.", location,
-                       reinterpret_cast<uint64_t &>(image_state->image),
-                       string_VkSampleCountFlagBits(image_state->createInfo.samples), string_VkSampleCountFlagBits(sample_count));
+        skip =
+            log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT,
+                    reinterpret_cast<uint64_t &>(image_state->image), 0, msgCode, "DS",
+                    "%s for image 0x%" PRIxLEAST64 " was created with a sample count of %s but must be %s. %s", location,
+                    reinterpret_cast<uint64_t &>(image_state->image), string_VkSampleCountFlagBits(image_state->createInfo.samples),
+                    string_VkSampleCountFlagBits(sample_count), validation_error_map[msgCode]);
     }
     return skip;
 }
@@ -8622,8 +8616,10 @@ CmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcI
     auto src_image_state = getImageState(dev_data, srcImage);
     auto dst_image_state = getImageState(dev_data, dstImage);
     if (cb_node && src_image_state && dst_image_state) {
-        skip_call |= ValidateImageSampleCount(dev_data, src_image_state, VK_SAMPLE_COUNT_1_BIT, "vkCmdBlitImage(): srcImage");
-        skip_call |= ValidateImageSampleCount(dev_data, dst_image_state, VK_SAMPLE_COUNT_1_BIT, "vkCmdBlitImage(): dstImage");
+        skip_call |= ValidateImageSampleCount(dev_data, src_image_state, VK_SAMPLE_COUNT_1_BIT, "vkCmdBlitImage(): srcImage",
+                                              VALIDATION_ERROR_02194);
+        skip_call |= ValidateImageSampleCount(dev_data, dst_image_state, VK_SAMPLE_COUNT_1_BIT, "vkCmdBlitImage(): dstImage",
+                                              VALIDATION_ERROR_02195);
         skip_call |= ValidateMemoryIsBoundToImage(dev_data, src_image_state, "vkCmdBlitImage()", VALIDATION_ERROR_02539);
         skip_call |= ValidateMemoryIsBoundToImage(dev_data, dst_image_state, "vkCmdBlitImage()", VALIDATION_ERROR_02540);
         // Update bindings between images and cmd buffer
@@ -8667,8 +8663,8 @@ VKAPI_ATTR void VKAPI_CALL CmdCopyBufferToImage(VkCommandBuffer commandBuffer, V
     auto src_buff_state = getBufferState(dev_data, srcBuffer);
     auto dst_image_state = getImageState(dev_data, dstImage);
     if (cb_node && src_buff_state && dst_image_state) {
-        skip_call |=
-            ValidateImageSampleCount(dev_data, dst_image_state, VK_SAMPLE_COUNT_1_BIT, "vkCmdCopyBufferToImage(): dstImage");
+        skip_call |= ValidateImageSampleCount(dev_data, dst_image_state, VK_SAMPLE_COUNT_1_BIT,
+                                              "vkCmdCopyBufferToImage(): dstImage", VALIDATION_ERROR_01232);
         skip_call |= ValidateMemoryIsBoundToBuffer(dev_data, src_buff_state, "vkCmdCopyBufferToImage()", VALIDATION_ERROR_02535);
         skip_call |= ValidateMemoryIsBoundToImage(dev_data, dst_image_state, "vkCmdCopyBufferToImage()", VALIDATION_ERROR_02536);
         AddCommandBufferBindingBuffer(dev_data, cb_node, src_buff_state);
@@ -8714,8 +8710,8 @@ VKAPI_ATTR void VKAPI_CALL CmdCopyImageToBuffer(VkCommandBuffer commandBuffer, V
     auto src_image_state = getImageState(dev_data, srcImage);
     auto dst_buff_state = getBufferState(dev_data, dstBuffer);
     if (cb_node && src_image_state && dst_buff_state) {
-        skip_call |=
-            ValidateImageSampleCount(dev_data, src_image_state, VK_SAMPLE_COUNT_1_BIT, "vkCmdCopyImageToBuffer(): srcImage");
+        skip_call |= ValidateImageSampleCount(dev_data, src_image_state, VK_SAMPLE_COUNT_1_BIT,
+                                              "vkCmdCopyImageToBuffer(): srcImage", VALIDATION_ERROR_01249);
         skip_call |= ValidateMemoryIsBoundToImage(dev_data, src_image_state, "vkCmdCopyImageToBuffer()", VALIDATION_ERROR_02537);
         skip_call |= ValidateMemoryIsBoundToBuffer(dev_data, dst_buff_state, "vkCmdCopyImageToBuffer()", VALIDATION_ERROR_02538);
         // Update bindings between buffer/image and cmd buffer

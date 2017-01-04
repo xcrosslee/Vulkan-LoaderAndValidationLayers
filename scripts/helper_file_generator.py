@@ -220,13 +220,20 @@ class HelperFileOutputGenerator(OutputGenerator):
             result = str(result).replace('::', '->')
         return result
     #
-    # Check if a parent object is dispatchable or not
-    def isHandleTypeNonDispatchable(self, handletype):
+    # Check if a structure is or contains a non-dispatchable handle
+    def TypeContainsObjectHandle(self, handletype):
         handle = self.registry.tree.find("types/type/[name='" + handletype + "'][@category='handle']")
         if handle is not None and handle.find('type').text == 'VK_DEFINE_NON_DISPATCHABLE_HANDLE':
             return True
-        else:
-            return False
+        # if handletype is a struct, search it's members
+        if handletype in self.structNames:
+            member_index = next((i for i, v in enumerate(self.structMembers) if v[0] == handletype), None)
+            if member_index is not None:
+                for item in self.structMembers[member_index].members:
+                    handle = self.registry.tree.find("types/type/[name='" + handletype + "'][@category='handle']")
+                    if handle is not None and handle.find('type').text == 'VK_DEFINE_NON_DISPATCHABLE_HANDLE':
+                        return True
+        return False
     #
     # Generate local ready-access data describing Vulkan structures and unions from the XML metadata
     def genStruct(self, typeinfo, typeName):
@@ -501,11 +508,11 @@ class HelperFileOutputGenerator(OutputGenerator):
             if item.ifdef_protect != None:
                 safe_struct_body += '#ifdef %s\n' % item.ifdef_protect
             ss_name = "safe_%s" % item.name
-            init_list = 'AAA\n'          # list of members in struct constructor initializer
-            default_init_list = 'BBB\n'  # Default constructor just inits ptrs to nullptr in initializer
-            init_func_txt = 'CCC\n'      # Txt for initialize() function that takes struct ptr and inits members
-            construct_txt = 'DDD\n'      # Body of constuctor as well as body of initialize() func following init_func_txt
-            destruct_txt = 'EEE\n'
+            init_list = ''          # list of members in struct constructor initializer
+            default_init_list = ''  # Default constructor just inits ptrs to nullptr in initializer
+            init_func_txt = ''      # Txt for initialize() function that takes struct ptr and inits members
+            construct_txt = ''      # Body of constuctor as well as body of initialize() func following init_func_txt
+            destruct_txt = ''
             # VkWriteDescriptorSet is special case because pointers may be non-null but ignored
             custom_construct_txt = {'VkWriteDescriptorSet' :
                                     '    switch (descriptorType) {\n'
@@ -548,11 +555,16 @@ class HelperFileOutputGenerator(OutputGenerator):
             for member in item.members: #for m in self.struct_dict[s]:
                 m_name = member.name
                 m_type = member.type
-                if m_name in self.structNames and self.NeedSafeStructmember(member) == True: # if is_type(m_type, 'struct') and self._hasSafeStruct(m_type):
-                    m_type = 'safe_%s' % member.type
 
+                if m_name == 'pBinds':
+                    wait = 'here'
+
+                if member.type in self.structNames:
+                    member_index = next((i for i, v in enumerate(self.structMembers) if v[0] == member.type), None)
+                    if member_index is not None and self.NeedSafeStruct(self.structMembers[member_index]) == True: # if is_type(m_type, 'struct') and self._hasSafeStruct(m_type):
+                        m_type = 'safe_%s' % member.type
                 #if self.struct_dict[s][m]['ptr'] and 'safe_' not in m_type and not self._typeHasObject(m_type, vulkan.object_non_dispatch_list):
-                if member.ispointer and 'safe_' not in m_type and self.isHandleTypeNonDispatchable(member.type) == False:
+                if member.ispointer and 'safe_' not in m_type and self.TypeContainsObjectHandle(member.type) == False:
 
                     # Ptr types w/o a safe_struct, for non-null case need to allocate new ptr and copy data in
                     if 'KHR' in ss_name or m_type in ['void', 'char']:
@@ -564,7 +576,7 @@ class HelperFileOutputGenerator(OutputGenerator):
                         init_list += '\n    %s(nullptr),' % (m_name)
                         init_func_txt += '    %s = nullptr;\n' % (m_name)
                         if 'pNext' != m_name and 'void' not in m_type:
-                            if not member.isstaticarray:
+                            if not member.isstaticarray and member.len is None:
                             #if not self.struct_dict[s][m]['array']:
                                 construct_txt += '    if (pInStruct->%s) {\n' % (m_name)
                                 construct_txt += '        %s = new %s(*pInStruct->%s);\n' % (m_name, m_type, m_name)
@@ -594,8 +606,10 @@ class HelperFileOutputGenerator(OutputGenerator):
                         array_element = 'pInStruct->%s[i]' % (m_name)
 
                         #if is_type(self.struct_dict[s][m]['type'], 'struct') and self._hasSafeStruct(self.struct_dict[s][m]['type']):
-                        if self.NeedSafeStructmember(member) == True:
-                            array_element = '%s(&pInStruct->safe_%s[i])' % (member.type, m_name)
+                        if member.type in self.structNames:
+                            member_index = next((i for i, v in enumerate(self.structMembers) if v[0] == member.type), None)
+                            if member_index is not None and self.NeedSafeStruct(self.structMembers[member_index]) == True:
+                                array_element = '%s(&pInStruct->safe_%s[i])' % (member.type, m_name)
                         construct_txt += '    if (%s && pInStruct->%s) {\n' % (member.len, m_name)
                         construct_txt += '        %s = new %s[%s];\n' % (m_name, m_type, member.len)
                         destruct_txt += '    if (%s)\n' % (m_name)

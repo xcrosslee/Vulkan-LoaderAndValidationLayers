@@ -204,6 +204,25 @@ class HelperFileOutputGenerator(OutputGenerator):
                 name = noneStr(elem.text)
         return (type, name)
     #
+    # Extract length values from latexmath.  Currently an inflexible solution that looks for specific
+    # patterns that are found in vk.xml.  Will need to be updated when new patterns are introduced.
+    def parseLateXMath(self, source):
+        name = 'ERROR'
+        decoratedName = 'ERROR'
+        if 'mathit' in source:
+            # Matches expressions similar to 'latexmath:[$\lceil{\mathit{rasterizationSamples} \over 32}\rceil$]'
+            match = re.match(r'latexmath\s*\:\s*\[\s*\$\\l(\w+)\s*\{\s*\\mathit\s*\{\s*(\w+)\s*\}\s*\\over\s*(\d+)\s*\}\s*\\r(\w+)\$\s*\]', source)
+            if not match or match.group(1) != match.group(4):
+                raise 'Unrecognized latexmath expression'
+            name = match.group(2)
+            decoratedName = '{}({}/{})'.format(*match.group(1, 2, 3))
+        else:
+            # Matches expressions similar to 'latexmath : [$dataSize \over 4$]'
+            match = re.match(r'latexmath\s*\:\s*\[\s*\$\s*(\w+)\s*\\over\s*(\d+)\s*\$\s*\]', source)
+            name = match.group(1)
+            decoratedName = '{}/{}'.format(*match.group(1, 2))
+        return name, decoratedName
+    #
     # Retrieve the value of the len tag
     def getLen(self, param):
         result = None
@@ -216,6 +235,10 @@ class HelperFileOutputGenerator(OutputGenerator):
                 result = len.split(',')[0]
             else:
                 result = len
+            if 'latexmath' in len:
+                param_type, param_name = self.getTypeNameTuple(param)
+                len_name, result = self.parseLateXMath(len)
+                result += 'GIBBERISH'
             # Spec has now notation for len attributes, using :: instead of platform specific pointer symbol
             result = str(result).replace('::', '->')
         return result
@@ -230,7 +253,7 @@ class HelperFileOutputGenerator(OutputGenerator):
             member_index = next((i for i, v in enumerate(self.structMembers) if v[0] == handletype), None)
             if member_index is not None:
                 for item in self.structMembers[member_index].members:
-                    handle = self.registry.tree.find("types/type/[name='" + handletype + "'][@category='handle']")
+                    handle = self.registry.tree.find("types/type/[name='" + item.type + "'][@category='handle']")
                     if handle is not None and handle.find('type').text == 'VK_DEFINE_NON_DISPATCHABLE_HANDLE':
                         return True
         return False
@@ -506,7 +529,7 @@ class HelperFileOutputGenerator(OutputGenerator):
             if self.NeedSafeStruct(item) == False:# if not self._hasSafeStruct(s):
                 continue
             if item.ifdef_protect != None:
-                safe_struct_body += '#ifdef %s\n' % item.ifdef_protect
+                safe_struct_body.append("#ifdef %s\n" % item.ifdef_protect)
             ss_name = "safe_%s" % item.name
             init_list = ''          # list of members in struct constructor initializer
             default_init_list = ''  # Default constructor just inits ptrs to nullptr in initializer
@@ -556,7 +579,7 @@ class HelperFileOutputGenerator(OutputGenerator):
                 m_name = member.name
                 m_type = member.type
 
-                if m_name == 'pBinds':
+                if m_name == 'pCode':
                     wait = 'here'
 
                 if member.type in self.structNames:
@@ -655,10 +678,8 @@ class HelperFileOutputGenerator(OutputGenerator):
             init_copy = copy_construct_init.replace('src.', 'src->')
             init_construct = copy_construct_txt.replace('src.', 'src->')
             safe_struct_body.append("\nvoid %s::initialize(const %s* src)\n{\n%s%s}" % (ss_name, ss_name, init_copy, init_construct))
-            #if s in ifdef_dict:
-            #    safe_struct_body.append('#endif')
             if item.ifdef_protect != None:
-                safe_struct_body += '#endif // %s\n' % item.ifdef_protect
+                safe_struct_body.append("#endif // %s\n" % item.ifdef_protect)
         return "\n".join(safe_struct_body)
     #
     # Create a helper file and return it as a string

@@ -47,6 +47,9 @@ public:
         bool no_render;
         bool no_present;
 
+        // Whether or not to use
+        bool flush_buffers;
+
         int max_frame_count;
     };
     const Settings &settings() const { return settings_; }
@@ -96,6 +99,8 @@ public:
         settings_.no_tick = false;
         settings_.no_render = false;
         settings_.no_present = false;
+        
+        settings_.flush_buffers = false;
 
         settings_.max_frame_count = -1;
 
@@ -134,6 +139,8 @@ private:
                 settings_.no_render = true;
             } else if (*it == "--np") {
                 settings_.no_present = true;
+            } else if (*it == "--flush") {
+                settings_.flush_buffers = true;
             } else if (*it == "--c") {
                 ++it;
                 settings_.max_frame_count = std::stoi(*it);

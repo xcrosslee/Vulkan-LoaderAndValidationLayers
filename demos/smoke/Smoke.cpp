@@ -810,6 +810,17 @@ void Smoke::on_frame(float frame_pred)
     // record render pass commands
     for (auto &worker : workers_)
         worker->wait_idle();
+
+    // Flush buffers if enabled
+    if (settings_.flush_buffers) {
+        VkMappedMemoryRange range = {};
+        range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        range.memory = frame_data_mem_;
+        range.offset = 0;
+        range.size = VK_WHOLE_SIZE;
+        vk::FlushMappedMemoryRanges(dev_, 1, &range);
+    }
+
     vk::CmdExecuteCommands(data.primary_cmd,
             static_cast<uint32_t>(data.worker_cmds.size()),
             data.worker_cmds.data());

@@ -87,7 +87,7 @@ class HelperFileOutputGenerator(OutputGenerator):
         self.flags = set()                                # Map of flags typenames
         # Named tuples to store struct and command data
         self.StructType = namedtuple('StructType', ['name', 'value'])
-        self.CommandParam = namedtuple('CommandParam', ['type', 'name', 'ispointer', 'isconst', 'iscount', 'len', 'extstructs', 'cdecl', 'islocal', 'iscreate', 'isdestroy'])
+        self.CommandParam = namedtuple('CommandParam', ['type', 'name', 'ispointer', 'isstaticarray', 'isconst', 'iscount', 'len', 'extstructs', 'cdecl', 'islocal', 'iscreate', 'isdestroy'])
         self.CommandData = namedtuple('CommandData', ['name', 'return_type', 'params', 'cdecl'])
         self.StructMemberData = namedtuple('StructMemberData', ['name', 'members', 'ifdef_protect'])
     #
@@ -165,6 +165,8 @@ class HelperFileOutputGenerator(OutputGenerator):
         if (category == 'struct' or category == 'union'):
             self.structNames.append(name)
             self.genStruct(typeinfo, name)
+        elif (category == 'handle'):
+            self.handleTypes.add(name)
     #
     # Generate a VkStructureType based on a structure typename
     def genVkStructureType(self, typename):
@@ -182,6 +184,14 @@ class HelperFileOutputGenerator(OutputGenerator):
             if ((elem.tag is not 'type') and (elem.tail is not None)) and '*' in elem.tail:
                 ispointer = True
         return ispointer
+    #
+    # Check if the parameter passed in is a static array
+    def paramIsStaticArray(self, param):
+        isstaticarray = 0
+        paramname = param.find('name')
+        if (paramname.tail is not None) and ('[' in paramname.tail):
+            isstaticarray = paramname.tail.count('[')
+        return isstaticarray
     #
     # Retrieve the type and name for a parameter
     def getTypeNameTuple(self, param):
@@ -209,6 +219,14 @@ class HelperFileOutputGenerator(OutputGenerator):
             # Spec has now notation for len attributes, using :: instead of platform specific pointer symbol
             result = str(result).replace('::', '->')
         return result
+    #
+    # Check if a parent object is dispatchable or not
+    def isHandleTypeNonDispatchable(self, handletype):
+        handle = self.registry.tree.find("types/type/[name='" + handletype + "'][@category='handle']")
+        if handle is not None and handle.find('type').text == 'VK_DEFINE_NON_DISPATCHABLE_HANDLE':
+            return True
+        else:
+            return False
     #
     # Generate local ready-access data describing Vulkan structures and unions from the XML metadata
     def genStruct(self, typeinfo, typeName):
@@ -241,9 +259,11 @@ class HelperFileOutputGenerator(OutputGenerator):
                 # Store the required type value
                 self.structTypes[typeName] = self.StructType(name=name, value=value)
             # Store pointer/array/string info
+            isstaticarray = self.paramIsStaticArray(member)
             membersInfo.append(self.CommandParam(type=type,
                                                  name=name,
                                                  ispointer=self.paramIsPointer(member),
+                                                 isstaticarray=isstaticarray,
                                                  isconst=True if 'const' in cdecl else False,
                                                  iscount=True if name in lens else False,
                                                  len=self.getLen(member),
@@ -421,7 +441,7 @@ class HelperFileOutputGenerator(OutputGenerator):
     def GenerateSafeStructHeader(self):
         safe_struct_header = ''
         for item in self.structMembers:
-            if self.GenSafeStruct(item) == True:
+            if self.NeedSafeStruct(item) == True:
                 safe_struct_header += '\n'
                 if item.ifdef_protect != None:
                     safe_struct_header += '#ifdef %s\n' % item.ifdef_protect
@@ -444,12 +464,23 @@ class HelperFileOutputGenerator(OutputGenerator):
     #
     # Determine if a structure needs a safe_struct helper function
     # That is, it has an sType or one of its members is a pointer
-    def GenSafeStruct(self, structure):
+    def NeedSafeStruct(self, structure):
         if 'sType' == structure.name:
             return True
         for member in structure.members:
             if member.ispointer == True:
                 return True
+        return False
+    #
+    # Determine if a structure member needs a safe_struct helper function
+    def NeedSafeStructmember(self, struct_member):
+        if 'pNext' == struct_member.name or 'char' == struct_member.type or 'void' == struct_member.type or 'float' == struct_member.type:
+            return False
+        if 'sType' == struct_member.name:
+           #return True
+           return False
+        if struct_member.ispointer == True:
+            return True
         return False
     #
     # Combine safe struct helper source file preamble with body text and return
@@ -463,47 +494,158 @@ class HelperFileOutputGenerator(OutputGenerator):
     #
     # safe_struct source -- create bodies of safe struct helper functions
     def GenerateSafeStructSource(self):
-        safe_struct_body = ''
-        for item in self.structMembers:
-            safe_struct_body += '\n'
+        safe_struct_body = []
+        for item in self.structMembers: # for s in struct_order_list:
+            if self.NeedSafeStruct(item) == False:# if not self._hasSafeStruct(s):
+                continue
             if item.ifdef_protect != None:
                 safe_struct_body += '#ifdef %s\n' % item.ifdef_protect
-            safe_struct_body += 'size_t vk_size_%s(const %s* struct_ptr) {\n' % (item.name.lower(), item.name)
-            safe_struct_body += '    size_t struct_size = 0;\n'
-            safe_struct_body += '    if (struct_ptr) {\n'
-            safe_struct_body += '        struct_size = sizeof(%s);\n' % item.name
-            counter_declared = False
-            for member in item.members:
-                vulkan_type = next((i for i, v in enumerate(self.structMembers) if v[0] == member.type), None)
-                if member.ispointer == True:
-                    if vulkan_type is not None:
-                        # If this is another Vulkan structure call generated size function
-                        if member.len is not None:
-                            safe_struct_body, counter_declared = self.DeclareCounter(safe_struct_body, counter_declared)
-                            safe_struct_body += '        for (i = 0; i < struct_ptr->%s; i++) {\n' % member.len
-                            safe_struct_body += '            struct_size += vk_size_%s(&struct_ptr->%s[i]);\n' % (member.type.lower(), member.name)
-                            safe_struct_body += '        }\n'
-                        else:
-                            safe_struct_body += '        struct_size += vk_size_%s(struct_ptr->%s);\n' % (member.type.lower(), member.name)
+            ss_name = "safe_%s" % item.name
+            init_list = 'AAA\n'          # list of members in struct constructor initializer
+            default_init_list = 'BBB\n'  # Default constructor just inits ptrs to nullptr in initializer
+            init_func_txt = 'CCC\n'      # Txt for initialize() function that takes struct ptr and inits members
+            construct_txt = 'DDD\n'      # Body of constuctor as well as body of initialize() func following init_func_txt
+            destruct_txt = 'EEE\n'
+            # VkWriteDescriptorSet is special case because pointers may be non-null but ignored
+            custom_construct_txt = {'VkWriteDescriptorSet' :
+                                    '    switch (descriptorType) {\n'
+                                    '        case VK_DESCRIPTOR_TYPE_SAMPLER:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:\n'
+                                    '        if (descriptorCount && pInStruct->pImageInfo) {\n'
+                                    '            pImageInfo = new VkDescriptorImageInfo[descriptorCount];\n'
+                                    '            for (uint32_t i=0; i<descriptorCount; ++i) {\n'
+                                    '                pImageInfo[i] = pInStruct->pImageInfo[i];\n'
+                                    '            }\n'
+                                    '        }\n'
+                                    '        break;\n'
+                                    '        case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:\n'
+                                    '        if (descriptorCount && pInStruct->pBufferInfo) {\n'
+                                    '            pBufferInfo = new VkDescriptorBufferInfo[descriptorCount];\n'
+                                    '            for (uint32_t i=0; i<descriptorCount; ++i) {\n'
+                                    '                pBufferInfo[i] = pInStruct->pBufferInfo[i];\n'
+                                    '            }\n'
+                                    '        }\n'
+                                    '        break;\n'
+                                    '        case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:\n'
+                                    '        case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:\n'
+                                    '        if (descriptorCount && pInStruct->pTexelBufferView) {\n'
+                                    '            pTexelBufferView = new VkBufferView[descriptorCount];\n'
+                                    '            for (uint32_t i=0; i<descriptorCount; ++i) {\n'
+                                    '                pTexelBufferView[i] = pInStruct->pTexelBufferView[i];\n'
+                                    '            }\n'
+                                    '        }\n'
+                                    '        break;\n'
+                                    '        default:\n'
+                                    '        break;\n'
+                                    '    }\n'}
+
+            for member in item.members: #for m in self.struct_dict[s]:
+                m_name = member.name
+                m_type = member.type
+                if m_name in self.structNames and self.NeedSafeStructmember(member) == True: # if is_type(m_type, 'struct') and self._hasSafeStruct(m_type):
+                    m_type = 'safe_%s' % member.type
+
+                #if self.struct_dict[s][m]['ptr'] and 'safe_' not in m_type and not self._typeHasObject(m_type, vulkan.object_non_dispatch_list):
+                if member.ispointer and 'safe_' not in m_type and self.isHandleTypeNonDispatchable(member.type) == False:
+
+                    # Ptr types w/o a safe_struct, for non-null case need to allocate new ptr and copy data in
+                    if 'KHR' in ss_name or m_type in ['void', 'char']:
+                        # For these exceptions just copy initial value over for now
+                        init_list += '\n    %s(pInStruct->%s),' % (m_name, m_name)
+                        init_func_txt += '    %s = pInStruct->%s;\n' % (m_name, m_name)
                     else:
-                        if member.type == 'char':
-                            # Deal with sizes of character strings
-                            if member.len is not None:
-                                safe_struct_body, counter_declared = self.DeclareCounter(safe_struct_body, counter_declared)
-                                safe_struct_body += '        for (i = 0; i < struct_ptr->%s; i++) {\n' % member.len
-                                safe_struct_body += '            struct_size += (sizeof(char*) + (sizeof(char) * (1 + strlen(struct_ptr->%s[i]))));\n' % (member.name)
-                                safe_struct_body += '        }\n'
-                            else:
-                                safe_struct_body += '        struct_size += (struct_ptr->%s != NULL) ? sizeof(char)*(1+strlen(struct_ptr->%s)) : 0;\n' % (member.name, member.name)
+                        default_init_list += '\n    %s(nullptr),' % (m_name)
+                        init_list += '\n    %s(nullptr),' % (m_name)
+                        init_func_txt += '    %s = nullptr;\n' % (m_name)
+                        if 'pNext' != m_name and 'void' not in m_type:
+                            if not member.isstaticarray:
+                            #if not self.struct_dict[s][m]['array']:
+                                construct_txt += '    if (pInStruct->%s) {\n' % (m_name)
+                                construct_txt += '        %s = new %s(*pInStruct->%s);\n' % (m_name, m_type, m_name)
+                                construct_txt += '    }\n'
+                                destruct_txt += '    if (%s)\n' % (m_name)
+                                destruct_txt += '        delete %s;\n' % (m_name)
+                            else: # new array and then init each element
+                                construct_txt += '    if (pInStruct->%s) {\n' % (m_name)
+                                construct_txt += '        %s = new %s[pInStruct->%s];\n' % (m_name, m_type, member.len)
+                                construct_txt += '        memcpy ((void *)%s, (void *)pInStruct->%s, sizeof(%s)*pInStruct->%s);\n' % (m_name, m_name, m_type, member.len)
+                                construct_txt += '    }\n'
+                                destruct_txt += '    if (%s)\n' % (m_name)
+                                destruct_txt += '        delete[] %s;\n' % (m_name)
+                elif member.isstaticarray or member.len is not None:
+                #elif self.struct_dict[s][m]['array']:
+                    #if not self.struct_dict[s][m]['dyn_array']:
+                    if member.len is None:
+                        # Handle static array case
+                        construct_txt += '    for (uint32_t i=0; i<%s; ++i) {\n' % member.len
+                        construct_txt += '        %s[i] = pInStruct->%s[i];\n' % (m_name, m_name)
+                        construct_txt += '    }\n'
+                    else:
+                        # Init array ptr to NULL
+                        default_init_list += '\n    %s(nullptr),' % (m_name)
+                        init_list += '\n    %s(nullptr),' % (m_name)
+                        init_func_txt += '    %s = nullptr;\n' % (m_name)
+                        array_element = 'pInStruct->%s[i]' % (m_name)
+
+                        #if is_type(self.struct_dict[s][m]['type'], 'struct') and self._hasSafeStruct(self.struct_dict[s][m]['type']):
+                        if self.NeedSafeStructmember(member) == True:
+                            array_element = '%s(&pInStruct->safe_%s[i])' % (member.type, m_name)
+                        construct_txt += '    if (%s && pInStruct->%s) {\n' % (member.len, m_name)
+                        construct_txt += '        %s = new %s[%s];\n' % (m_name, m_type, member.len)
+                        destruct_txt += '    if (%s)\n' % (m_name)
+                        destruct_txt += '        delete[] %s;\n' % (m_name)
+                        construct_txt += '        for (uint32_t i=0; i<%s; ++i) {\n' % (member.len)
+                        if 'safe_' in m_type:
+                            construct_txt += '            %s[i].initialize(&pInStruct->%s[i]);\n' % (m_name, m_name)
                         else:
-                            if member.len is not None:
-                                safe_struct_body += '        struct_size += struct_ptr->%s * sizeof(%s);\n' % (member.len, member.name)
-            safe_struct_body += '    }\n'
-            safe_struct_body += '    return struct_size\n'
-            safe_struct_body += '}\n'
+                            construct_txt += '            %s[i] = %s;\n' % (m_name, array_element)
+                        construct_txt += '        }\n'
+                        construct_txt += '    }\n'
+                #elif self.struct_dict[s][m]['ptr']:
+                elif member.ispointer == True:
+                    construct_txt += '    if (pInStruct->%s)\n' % (m_name)
+                    construct_txt += '        %s = new %s(pInStruct->%s);\n' % (m_name, m_type, m_name)
+                    construct_txt += '    else\n'
+                    construct_txt += '        %s = NULL;\n' % (m_name)
+                    destruct_txt += '    if (%s)\n' % (m_name)
+                    destruct_txt += '        delete %s;\n' % (m_name)
+                elif 'safe_' in m_type: # inline struct, need to pass in reference for constructor
+                    init_list += '\n    %s(&pInStruct->%s),' % (m_name, m_name)
+                    init_func_txt += '        %s.initialize(&pInStruct->%s);\n' % (m_name, m_name)
+                else:
+                    init_list += '\n    %s(pInStruct->%s),' % (m_name, m_name)
+                    init_func_txt += '    %s = pInStruct->%s;\n' % (m_name, m_name)
+            if '' != init_list:
+                init_list = init_list[:-1] # hack off final comma
+            if item.name in custom_construct_txt:
+                construct_txt = custom_construct_txt[item.name]
+            safe_struct_body.append("\n%s::%s(const %s* pInStruct) :%s\n{\n%s}" % (ss_name, ss_name, item.name, init_list, construct_txt))
+            if '' != default_init_list:
+                default_init_list = " :%s" % (default_init_list[:-1])
+            safe_struct_body.append("\n%s::%s()%s\n{}" % (ss_name, ss_name, default_init_list))
+            # Create slight variation of init and construct txt for copy constructor that takes a src object reference vs. struct ptr
+            copy_construct_init = init_func_txt.replace('pInStruct->', 'src.')
+            copy_construct_txt = construct_txt.replace(' (pInStruct->', ' (src.') # Exclude 'if' blocks from next line
+            copy_construct_txt = copy_construct_txt.replace('(pInStruct->', '(*src.') # Pass object to copy constructors
+            copy_construct_txt = copy_construct_txt.replace('pInStruct->', 'src.') # Modify remaining struct refs for src object
+            safe_struct_body.append("\n%s::%s(const %s& src)\n{\n%s%s}" % (ss_name, ss_name, ss_name, copy_construct_init, copy_construct_txt)) # Copy constructor
+            safe_struct_body.append("\n%s::~%s()\n{\n%s}" % (ss_name, ss_name, destruct_txt))
+            safe_struct_body.append("\nvoid %s::initialize(const %s* pInStruct)\n{\n%s%s}" % (ss_name, item.name, init_func_txt, construct_txt))
+            # Copy initializer uses same txt as copy constructor but has a ptr and not a reference
+            init_copy = copy_construct_init.replace('src.', 'src->')
+            init_construct = copy_construct_txt.replace('src.', 'src->')
+            safe_struct_body.append("\nvoid %s::initialize(const %s* src)\n{\n%s%s}" % (ss_name, ss_name, init_copy, init_construct))
+            #if s in ifdef_dict:
+            #    safe_struct_body.append('#endif')
             if item.ifdef_protect != None:
                 safe_struct_body += '#endif // %s\n' % item.ifdef_protect
-        return safe_struct_body
+        return "\n".join(safe_struct_body)
     #
     # Create a helper file and return it as a string
     def OutputDestFile(self):

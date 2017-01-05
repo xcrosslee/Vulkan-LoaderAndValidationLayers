@@ -1741,6 +1741,8 @@ static bool PreGetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex, uint32
 
     const auto &queue_data = my_device_data->queueFamilyIndexMap.find(queueFamilyIndex);
     if (queue_data->second <= queueIndex) {
+//mewmew
+// 00061
         log_msg(my_device_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__, INVALID_USAGE,
                 LayerName,
                 "VkGetDeviceQueue parameter, uint32_t queueIndex %d, must be less than the number of queues given when the device "
@@ -2275,6 +2277,8 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateQueryPool(VkDevice device, const VkQueryPoo
         if ((pCreateInfo->queryType == VK_QUERY_TYPE_PIPELINE_STATISTICS) && (pCreateInfo->pipelineStatistics != 0) &&
             ((pCreateInfo->pipelineStatistics & (~AllVkQueryPipelineStatisticFlagBits)) != 0)) {
             skip |=
+//mewmew
+// 01007
                 log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
                         UNRECOGNIZED_VALUE, LayerName, "vkCreateQueryPool: if pCreateInfo->queryType is "
                                                        "VK_QUERY_TYPE_PIPELINE_STATISTICS, pCreateInfo->pipelineStatistics must be "
@@ -2443,6 +2447,8 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateImage(VkDevice device, const VkImageCreateI
             // If sharingMode is VK_SHARING_MODE_CONCURRENT, queueFamilyIndexCount must be greater than 1
             if (pCreateInfo->queueFamilyIndexCount <= 1) {
                 skip |=
+//mewmew
+// 00714
                     log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
                             INVALID_USAGE, LayerName, "vkCreateImage: if pCreateInfo->sharingMode is VK_SHARING_MODE_CONCURRENT, "
                                                       "pCreateInfo->queueFamilyIndexCount must be greater than 1");
@@ -2451,6 +2457,8 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateImage(VkDevice device, const VkImageCreateI
             // If sharingMode is VK_SHARING_MODE_CONCURRENT, pQueueFamilyIndices must be a pointer to an array of
             // queueFamilyIndexCount uint32_t values
             if (pCreateInfo->pQueueFamilyIndices == nullptr) {
+//mewmew
+// 00713
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                      __LINE__, REQUIRED_PARAMETER, LayerName,
                                      "vkCreateImage: if pCreateInfo->sharingMode is VK_SHARING_MODE_CONCURRENT, "

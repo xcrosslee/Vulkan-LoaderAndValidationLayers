@@ -14871,7 +14871,6 @@ TEST_F(VkLayerTest, ImageFormatLimits) {
     TEST_DESCRIPTION("Exceed the limits of image format ");
 
     ASSERT_NO_FATAL_FAILURE(InitState());
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "CreateImage extents exceed allowable limits for format");
     VkImageCreateInfo image_create_info = {};
     image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_create_info.pNext = NULL;
@@ -14892,6 +14891,7 @@ TEST_F(VkLayerTest, ImageFormatLimits) {
     VkImageFormatProperties imgFmtProps;
     vkGetPhysicalDeviceImageFormatProperties(gpu(), image_create_info.format, image_create_info.imageType, image_create_info.tiling,
                                              image_create_info.usage, image_create_info.flags, &imgFmtProps);
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,"pCreateInfo->extent.depth must be 1");
     image_create_info.extent.depth = imgFmtProps.maxExtent.depth + 1;
     // Expect INVALID_FORMAT_LIMITS_VIOLATION
     vkCreateImage(m_device->handle(), &image_create_info, NULL, &nullImg);

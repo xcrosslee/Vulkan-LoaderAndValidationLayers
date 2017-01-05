@@ -1511,10 +1511,10 @@ void validateDeviceCreateInfo(VkPhysicalDevice physicalDevice, const VkDeviceCre
         for (uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; ++i) {
             if (set.count(pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex)) {
                 log_msg(my_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, __LINE__,
-                        INVALID_USAGE, LayerName,
+                        VALIDATION_ERROR_00035, LayerName,
                         "VkDeviceCreateInfo parameter, uint32_t pQueueCreateInfos[%d]->queueFamilyIndex, is not unique within this "
-                        "structure.",
-                        i);
+                        "structure. %s",
+                        i, validation_error_map[VALIDATION_ERROR_00035]);
             } else {
                 set.insert(pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex);
             }

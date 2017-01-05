@@ -7517,8 +7517,6 @@ CmdBindPipeline(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindP
         dev_data->dispatch_table.CmdBindPipeline(commandBuffer, pipelineBindPoint, pipeline);
 }
 
-// mewmew [
-
 VKAPI_ATTR void VKAPI_CALL
 CmdSetViewport(VkCommandBuffer commandBuffer, uint32_t firstViewport, uint32_t viewportCount, const VkViewport *pViewports) {
     bool skip_call = false;
@@ -8831,7 +8829,6 @@ VKAPI_ATTR void VKAPI_CALL CmdClearAttachments(VkCommandBuffer commandBuffer, ui
             // Can we make this warning more specific? I'd like to avoid triggering this test if we can tell it's a use that must
             // call CmdClearAttachments
             // Otherwise this seems more like a performance warning.
-// mewmew
             skip_call |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
                                  VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, reinterpret_cast<uint64_t &>(commandBuffer), 0,
                                  DRAWSTATE_CLEAR_CMD_BEFORE_DRAW, "DS",
@@ -8854,7 +8851,6 @@ VKAPI_ATTR void VKAPI_CALL CmdClearAttachments(VkCommandBuffer commandBuffer, ui
 
             if (clear_desc->aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) {
                 if (clear_desc->colorAttachment >= pSD->colorAttachmentCount) {
-// mewmew
                     skip_call |= log_msg(
                         dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                         (uint64_t)commandBuffer, __LINE__, VALIDATION_ERROR_01114, "DS",
@@ -8862,7 +8858,6 @@ VKAPI_ATTR void VKAPI_CALL CmdClearAttachments(VkCommandBuffer commandBuffer, ui
                         clear_desc->colorAttachment, pCB->activeSubpass, validation_error_map[VALIDATION_ERROR_01114]);
                 }
                 else if (pSD->pColorAttachments[clear_desc->colorAttachment].attachment == VK_ATTACHMENT_UNUSED) {
-// mewmew
                     skip_call |= log_msg(
                         dev_data->report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                         (uint64_t)commandBuffer, __LINE__, DRAWSTATE_MISSING_ATTACHMENT_REFERENCE, "DS",
@@ -8877,7 +8872,6 @@ VKAPI_ATTR void VKAPI_CALL CmdClearAttachments(VkCommandBuffer commandBuffer, ui
                     (pSD->pDepthStencilAttachment->attachment ==
                      VK_ATTACHMENT_UNUSED)) { // Says no DS will be used in active subpass
 
-// mewmew
                     skip_call |= log_msg(
                         dev_data->report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                         (uint64_t)commandBuffer, __LINE__, DRAWSTATE_MISSING_ATTACHMENT_REFERENCE, "DS",
@@ -8894,7 +8888,6 @@ VKAPI_ATTR void VKAPI_CALL CmdClearAttachments(VkCommandBuffer commandBuffer, ui
                 auto extra_aspects = clear_desc->aspectMask & ~aspects_present;
                 // TODO: This is a different check than 01125. Need a new valid usage statement for this case, or should kill check.
                 if (extra_aspects) {
-// mewmew
                     skip_call |= log_msg(
                             dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT,
                             reinterpret_cast<uint64_t &>(image_view), __LINE__, VALIDATION_ERROR_01125, "DS",
@@ -9117,7 +9110,6 @@ static bool TransitionImageLayouts(VkCommandBuffer cmdBuffer, uint32_t memBarrie
                 if (mem_barrier->oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
                     // TODO: Set memory invalid which is in mem_tracker currently
                 } else if (node.layout != mem_barrier->oldLayout) {
-// mewmew
                     skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0,
                                     __LINE__, DRAWSTATE_INVALID_IMAGE_LAYOUT, "DS", "You cannot transition the layout from %s "
                                                                                     "when current layout is %s.",
@@ -9162,14 +9154,12 @@ static bool ValidateMaskBits(const layer_data *my_data, VkCommandBuffer cmdBuffe
         if (accessMask & ~(required_bit | optional_bits)) {
             // TODO: Verify against Valid Use
             skip_call |=
-// mewmew
                 log_msg(my_data->report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                         DRAWSTATE_INVALID_BARRIER, "DS", "Additional bits in %s accessMask 0x%X %s are specified when layout is %s.",
                         type, accessMask, string_VkAccessFlags(accessMask).c_str(), string_VkImageLayout(layout));
         }
     } else {
         if (!required_bit) {
-// mewmew
             skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                                  DRAWSTATE_INVALID_BARRIER, "DS", "%s AccessMask %d %s must contain at least one of access bits %d "
                                                                   "%s when layout is %s, unless the app has previously added a "
@@ -9183,7 +9173,6 @@ static bool ValidateMaskBits(const layer_data *my_data, VkCommandBuffer cmdBuffe
                 ss << optional_bits;
                 opt_bits = "and may have optional bits " + ss.str() + ' ' + string_VkAccessFlags(optional_bits);
             }
-// mewmew
             skip_call |= log_msg(my_data->report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                                  DRAWSTATE_INVALID_BARRIER, "DS", "%s AccessMask %d %s must have required access bit %d %s %s when "
                                                                   "layout is %s, unless the app has previously added a barrier for "
@@ -9236,7 +9225,6 @@ static bool ValidateMaskBitsFromLayouts(const layer_data *my_data, VkCommandBuff
         if (accessMask != 0) {
             // TODO: Verify against Valid Use section spec
             skip_call |=
-// mewmew
                 log_msg(my_data->report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                         DRAWSTATE_INVALID_BARRIER, "DS", "Additional bits in %s accessMask 0x%X %s are specified when layout is %s.",
                         type, accessMask, string_VkAccessFlags(accessMask).c_str(), string_VkImageLayout(layout));
@@ -9258,7 +9246,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
     GLOBAL_CB_NODE *pCB = getCBNode(dev_data, cmdBuffer);
     if (pCB->activeRenderPass && memBarrierCount) {
         if (!pCB->activeRenderPass->hasSelfDependency[pCB->activeSubpass]) {
-// mewmew
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                             DRAWSTATE_INVALID_BARRIER, "DS", "%s: Barriers cannot be set during subpass %d "
                                                              "with no self dependency specified.",
@@ -9275,7 +9262,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                 // srcQueueFamilyIndex and dstQueueFamilyIndex must both
                 // be VK_QUEUE_FAMILY_IGNORED
                 if ((src_q_f_index != VK_QUEUE_FAMILY_IGNORED) || (dst_q_f_index != VK_QUEUE_FAMILY_IGNORED)) {
-// mewmew
                     skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0,
                                     __LINE__, DRAWSTATE_INVALID_QUEUE_INDEX, "DS",
                                     "%s: Image Barrier for image 0x%" PRIx64 " was created with sharingMode of "
@@ -9290,7 +9276,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                 if (((src_q_f_index == VK_QUEUE_FAMILY_IGNORED) || (dst_q_f_index == VK_QUEUE_FAMILY_IGNORED)) &&
                     (src_q_f_index != dst_q_f_index)) {
                     skip |=
-// mewmew
                         log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                                 DRAWSTATE_INVALID_QUEUE_INDEX, "DS", "%s: Image 0x%" PRIx64 " was created with sharingMode "
                                                                      "of VK_SHARING_MODE_EXCLUSIVE. If one of src- or "
@@ -9300,7 +9285,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                 } else if (((src_q_f_index != VK_QUEUE_FAMILY_IGNORED) && (dst_q_f_index != VK_QUEUE_FAMILY_IGNORED)) &&
                            ((src_q_f_index >= dev_data->phys_dev_properties.queue_family_properties.size()) ||
                             (dst_q_f_index >= dev_data->phys_dev_properties.queue_family_properties.size()))) {
-// mewmew
                     skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0,
                                     __LINE__, DRAWSTATE_INVALID_QUEUE_INDEX, "DS",
                                     "%s: Image 0x%" PRIx64 " was created with sharingMode "
@@ -9321,7 +9305,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                     ValidateMaskBitsFromLayouts(dev_data, cmdBuffer, mem_barrier->dstAccessMask, mem_barrier->newLayout, "Dest");
             }
             if (mem_barrier->newLayout == VK_IMAGE_LAYOUT_UNDEFINED || mem_barrier->newLayout == VK_IMAGE_LAYOUT_PREINITIALIZED) {
-// mewmew
                 skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                                 DRAWSTATE_INVALID_BARRIER, "DS", "%s: Image Layout cannot be transitioned to UNDEFINED or "
                                                                  "PREINITIALIZED.",
@@ -9355,7 +9338,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                                      ? 1
                                      : mem_barrier->subresourceRange.layerCount;
                 if ((mem_barrier->subresourceRange.baseArrayLayer + layerCount) > arrayLayers) {
-// mewmew
                     skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0,
                                     __LINE__, DRAWSTATE_INVALID_BARRIER, "DS", "%s: Subresource must have the sum of the "
                                                                                "baseArrayLayer (%d) and layerCount (%d) be less "
@@ -9367,7 +9349,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                                      ? 1
                                      : mem_barrier->subresourceRange.levelCount;
                 if ((mem_barrier->subresourceRange.baseMipLevel + levelCount) > mipLevels) {
-// mewmew
                     skip |= log_msg(
                         dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                         DRAWSTATE_INVALID_BARRIER, "DS", "%s: Subresource must have the sum of the baseMipLevel "
@@ -9381,7 +9362,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
     for (uint32_t i = 0; i < bufferBarrierCount; ++i) {
         auto mem_barrier = &pBufferMemBarriers[i];
         if (pCB->activeRenderPass) {
-// mewmew
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                             DRAWSTATE_INVALID_BARRIER, "DS", "%s: Buffer Barriers cannot be used during a render pass.", funcName);
         }
@@ -9393,7 +9373,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
              mem_barrier->srcQueueFamilyIndex >= dev_data->phys_dev_properties.queue_family_properties.size()) ||
             (mem_barrier->dstQueueFamilyIndex != VK_QUEUE_FAMILY_IGNORED &&
              mem_barrier->dstQueueFamilyIndex >= dev_data->phys_dev_properties.queue_family_properties.size())) {
-// mewmew
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                             DRAWSTATE_INVALID_QUEUE_INDEX, "DS",
                             "%s: Buffer Barrier 0x%" PRIx64 " has QueueFamilyIndex greater "
@@ -9406,7 +9385,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
         if (buffer_state) {
             auto buffer_size = buffer_state->requirements.size;
             if (mem_barrier->offset >= buffer_size) {
-// mewmew
                 skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                                 DRAWSTATE_INVALID_BARRIER, "DS", "%s: Buffer Barrier 0x%" PRIx64 " has offset 0x%" PRIx64
                                                                  " which is not less than total size 0x%" PRIx64 ".",
@@ -9414,7 +9392,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
                                 reinterpret_cast<const uint64_t &>(mem_barrier->offset),
                                 reinterpret_cast<const uint64_t &>(buffer_size));
             } else if (mem_barrier->size != VK_WHOLE_SIZE && (mem_barrier->offset + mem_barrier->size > buffer_size)) {
-// mewmew
                 skip |= log_msg(
                     dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, (VkDebugReportObjectTypeEXT)0, 0, __LINE__,
                     DRAWSTATE_INVALID_BARRIER, "DS", "%s: Buffer Barrier 0x%" PRIx64 " has offset 0x%" PRIx64 " and size 0x%" PRIx64
@@ -9427,8 +9404,6 @@ static bool ValidateBarriers(const char *funcName, VkCommandBuffer cmdBuffer, ui
     }
     return skip;
 }
-
-// mewmew ]
 
 bool validateEventStageMask(VkQueue queue, GLOBAL_CB_NODE *pCB, uint32_t eventCount, size_t firstEventIndex, VkPipelineStageFlags sourceStageMask) {
     bool skip_call = false;
@@ -13161,5 +13136,3 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkD
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char *funcName) {
     return core_validation::GetInstanceProcAddr(instance, funcName);
 }
-// VALIDATION_ERROR_
-// validation_error_map[VALIDATION_ERROR_
